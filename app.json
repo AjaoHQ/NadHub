@@ -4,27 +4,22 @@
     "slug": "NadHub",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+    "jsEngine": "hermes",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "แอพต้องการเข้าถึงรูปภาพของคุณเพื่ออัปโหลดสินค้า",
+          "cameraPermission": "แอพต้องการใช้กล้องของคุณเพื่อถ่ายภาพสินค้า"
+        }
+      ]
+    ],
+    "updates": {
+      "enabled": false,
+      "fallbackToCacheTimeout": 0
     },
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "assetBundlePatterns": [
+      "**/*"
+    ]
   }
 }
