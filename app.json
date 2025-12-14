@@ -20,6 +20,14 @@
     },
     "assetBundlePatterns": [
       "**/*"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "626eb644-942f-4d67-9c2d-cdc0774dbce3"
+      }
+    },
+    "android": {
+      "package": "com.dotajao.nadhub"
+    }
   }
 }
