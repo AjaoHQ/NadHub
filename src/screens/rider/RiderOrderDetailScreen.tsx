@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Platform, Linking } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
+
 import { RiderStackParamList } from '../../types';
 import { useOrders } from '../../store/orders';
 import { useProducts } from '../../store/products';
 import { Ionicons } from '@expo/vector-icons';
 import { getOrderStatusLabel, getOrderStatusColor, OrderStatus } from '../../utils/orderStatus';
+import { PinMarker } from '../../components/PinMarker';
 
 type RiderOrderDetailRouteProp = RouteProp<RiderStackParamList, 'RiderOrderDetail'>;
 type NavigationProp = NativeStackNavigationProp<RiderStackParamList, 'RiderOrderDetail'>;
@@ -31,29 +35,61 @@ export default function RiderOrderDetailScreen() {
     const order = orders.find(o => o.id === orderId);
     const product = order ? products.find(p => p.id === order.productId) : null;
 
-    // Simulate location updates when active
+    // Logic: Location tracking
+    const mapRef = useRef<MapView>(null);
+    const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
+    const subscriberRef = useRef<Location.LocationSubscription | null>(null);
+
+    // Filter statuses that require tracking
+    const isLive = order && isMyJob(order) && ['assigned', 'picked_up', 'delivered', 'RIDER_HEADING_TO_STORE', 'PICKED_UP', 'DELIVERED_WAITING_PAYMENT', 'RIDER_ARRIVED'].includes(order.status);
+
+    function isMyJob(o: any) {
+        return o.riderName === CURRENT_RIDER;
+    }
+
+    // Start/Stop Location Tracking
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (order && order.riderName === CURRENT_RIDER &&
-            ['assigned', 'picked_up', 'delivered', 'RIDER_HEADING_TO_STORE', 'PICKED_UP', 'DELIVERED_WAITING_PAYMENT', 'RIDER_ARRIVED'].includes(order.status)) {
+        let subscription: Location.LocationSubscription | null = null;
 
-            interval = setInterval(() => {
-                // Simulate moving rider slightly
-                const currentLat = order.riderLocation?.lat || 13.7563;
-                const currentLng = order.riderLocation?.lng || 100.5018;
-                const newLat = currentLat + (Math.random() - 0.5) * 0.001;
-                const newLng = currentLng + (Math.random() - 0.5) * 0.001;
+        const startTracking = async () => {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert("Permission to access location was denied");
+                return;
+            }
 
-                updateRiderLocation(order.id, {
-                    lat: newLat,
-                    lng: newLng,
-                    updatedAt: Date.now()
-                });
-            }, 3000); // Update every 3 seconds
+            subscription = await Location.watchPositionAsync(
+                {
+                    accuracy: Location.Accuracy.High,
+                    timeInterval: 5000, // 5 seconds
+                    distanceInterval: 10, // 10 meters
+                },
+                (location) => {
+                    setCurrentLocation(location);
+
+                    // Upload to Firebase if active job
+                    if (isLive && order) {
+                        updateRiderLocation(order.id, {
+                            lat: location.coords.latitude,
+                            lng: location.coords.longitude,
+                            updatedAt: Date.now()
+                        });
+                    }
+                }
+            );
+            subscriberRef.current = subscription;
+        };
+
+        if (isLive) {
+            startTracking();
         }
-        return () => clearInterval(interval);
-    }, [order?.status, order?.id]);
 
+        return () => {
+            if (subscriberRef.current) {
+                subscriberRef.current.remove();
+            }
+        };
+    }, [isLive, order?.id]);
 
     if (!order || !product) {
         return (
@@ -139,119 +175,187 @@ export default function RiderOrderDetailScreen() {
         );
     };
 
-    const isMyJob = order.riderName === CURRENT_RIDER;
+    const openGoogleMaps = () => {
+        // Decide destination based on status
+        let targetLat, targetLng, targetLabel;
+        const pickup = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
+        const dropoff = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
+
+        if (['assigned', 'RIDER_HEADING_TO_STORE', 'WAITING_RIDER'].includes(order.status)) {
+            targetLat = pickup.lat;
+            targetLng = pickup.lng;
+            targetLabel = "ร้านค้า";
+        } else {
+            targetLat = dropoff.lat;
+            targetLng = dropoff.lng;
+            targetLabel = "ลูกค้า";
+        }
+
+        const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
+        const latLng = `${targetLat},${targetLng}`;
+        const label = targetLabel;
+        const url = Platform.select({
+            ios: `${scheme}${label}@${latLng}`,
+            android: `${scheme}${latLng}(${label})`
+        });
+
+        if (url) {
+            Linking.openURL(url);
+        }
+    };
+
     const statusLabel = getOrderStatusLabel(order.status as OrderStatus);
     const statusColor = getOrderStatusColor(order.status as OrderStatus);
+    const isJobMine = isMyJob(order);
+
+    // Safe fallbacks for locations
+    const pickupLoc = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
+    const dropoffLoc = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
+    const riderLoc = currentLocation ? { lat: currentLocation.coords.latitude, lng: currentLocation.coords.longitude } : (order.riderLiveLocation || order.riderLocation);
 
     return (
-        <ScrollView style={styles.container}>
-            <View style={styles.card}>
-                <View style={styles.header}>
-                    <Text style={styles.sectionTitle}>รายละเอียดงาน</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                        <Text style={styles.statusText}>{statusLabel}</Text>
-                    </View>
-                </View>
-
-                <Text style={styles.productName}>{product.name}</Text>
-
-                <View style={styles.row}>
-                    <Text style={styles.label}>ร้านค้า</Text>
-                    <Text style={styles.value}>{order.storeName}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.label}>ผู้สั่งซื้อ</Text>
-                    <Text style={styles.value}>{order.customerName}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.label}>เบอร์โทร</Text>
-                    <Text style={styles.value}>{order.customerPhone || '08x-xxx-xxxx'}</Text>
-                </View>
-                <View style={styles.infoBlock}>
-                    <Text style={styles.label}>จุดรับสินค้า</Text>
-                    <Text style={styles.value}>{order.storeAddress || 'ร้านค้า NadHub'}</Text>
-                </View>
-                <View style={styles.infoBlock}>
-                    <Text style={styles.label}>จุดส่งสินค้า</Text>
-                    <Text style={styles.value}>{order.customerAddress}</Text>
-                </View>
-                {order.buyerNote && (
-                    <View style={styles.infoBlock}>
-                        <Text style={styles.label}>หมายเหตุจากลูกค้า</Text>
-                        <Text style={styles.note}>{order.buyerNote}</Text>
-                    </View>
-                )}
-
-                <View style={styles.divider} />
-
-                <View style={styles.row}>
-                    <Text style={styles.label}>ค่าจัดส่งที่จะได้รับ</Text>
-                    <Text style={styles.fee}>{order.deliveryFee} บาท</Text>
-                </View>
-            </View>
-
-            {/* Map Placeholder */}
-            {isMyJob && ['assigned', 'picked_up', 'delivered', 'RIDER_HEADING_TO_STORE', 'PICKED_UP', 'DELIVERED_WAITING_PAYMENT', 'RIDER_ARRIVED'].includes(order.status) && (
-                <View style={styles.mapContainer}>
-                    <Text style={styles.mapText}>[ แผนที่จำลอง ]</Text>
-                    <Text style={styles.mapSubText}>
-                        Rider Location: {order.riderLiveLocation?.lat.toFixed(4) || order.riderLocation?.lat.toFixed(4) || 0},
-                        {order.riderLiveLocation?.lng.toFixed(4) || order.riderLocation?.lng.toFixed(4) || 0}
-                    </Text>
-                </View>
-            )}
-
-            {/* Rider Rating Review Section - Only show if job is completed and rated */}
-            {order.status === 'COMPLETED' && order.riderRating && (
-                <View style={styles.reviewContainer}>
-                    <Text style={styles.reviewTitle}>รีวิวจากลูกค้า</Text>
-                    <View style={styles.ratingRow}>
-                        <View style={styles.stars}>
-                            {[1, 2, 3, 4, 5].map((star) => (
-                                <Ionicons
-                                    key={star}
-                                    name={star <= (order.riderRating || 0) ? "star" : "star-outline"}
-                                    size={24}
-                                    color="#FFD700"
-                                />
-                            ))}
+        <View style={{ flex: 1 }}>
+            <ScrollView style={styles.container}>
+                <View style={styles.card}>
+                    <View style={styles.header}>
+                        <Text style={styles.sectionTitle}>รายละเอียดงาน</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                            <Text style={styles.statusText}>{statusLabel}</Text>
                         </View>
-                        <Text style={styles.ratingValue}>{order.riderRating.toFixed(1)}</Text>
                     </View>
-                    {order.riderReviewText && (
-                        <View style={styles.commentBox}>
-                            <Text style={styles.commentText}>"{order.riderReviewText}"</Text>
+
+                    {/* Map Section */}
+                    {isJobMine && ['assigned', 'picked_up', 'delivered', 'RIDER_HEADING_TO_STORE', 'PICKED_UP', 'DELIVERED_WAITING_PAYMENT', 'RIDER_ARRIVED'].includes(order.status) && (
+                        <View style={styles.mapContainer}>
+                            <MapView
+                                ref={mapRef}
+                                provider={PROVIDER_GOOGLE}
+                                style={styles.map}
+                                initialRegion={{
+                                    latitude: riderLoc?.lat || pickupLoc.lat, // Prioritize rider loc
+                                    longitude: riderLoc?.lng || pickupLoc.lng,
+                                    latitudeDelta: 0.05,
+                                    longitudeDelta: 0.05,
+                                }}
+                                showsUserLocation={true}
+                            >
+                                <PinMarker coordinate={{ latitude: pickupLoc.lat, longitude: pickupLoc.lng }} type="pickup" title="ร้านค้า" />
+                                <PinMarker coordinate={{ latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }} type="dropoff" title="ลูกค้า" />
+
+                                {/* Draw line if we have rider loc */}
+                                {riderLoc && (
+                                    <Polyline
+                                        coordinates={[
+                                            { latitude: riderLoc.lat, longitude: riderLoc.lng },
+                                            { latitude: pickupLoc.lat, longitude: pickupLoc.lng },
+                                            { latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }
+                                        ]}
+                                        strokeColor="#36D873"
+                                        strokeWidth={3}
+                                    />
+                                )}
+                            </MapView>
+
+                            <TouchableOpacity style={styles.navButton} onPress={openGoogleMaps}>
+                                <Ionicons name="navigate-circle" size={32} color="#36D873" />
+                                <Text style={styles.navButtonText}>นำทาง Maps</Text>
+                            </TouchableOpacity>
                         </View>
                     )}
+
+
+                    <Text style={styles.productName}>{product.name}</Text>
+
+                    <View style={styles.row}>
+                        <Text style={styles.label}>ร้านค้า</Text>
+                        <Text style={styles.value}>{order.storeName}</Text>
+                    </View>
+                    <View style={styles.row}>
+                        <Text style={styles.label}>ผู้สั่งซื้อ</Text>
+                        <Text style={styles.value}>{order.customerName}</Text>
+                    </View>
+                    <View style={styles.row}>
+                        <Text style={styles.label}>เบอร์โทร</Text>
+                        <Text style={styles.value}>{order.customerPhone || '08x-xxx-xxxx'}</Text>
+                    </View>
+                    <View style={styles.infoBlock}>
+                        <Text style={styles.label}>จุดรับสินค้า (Pickup)</Text>
+                        <Text style={styles.value}>{order.storeAddress || 'ร้านค้า NadHub'}</Text>
+                        {order.pickupPin?.note && <Text style={styles.pinNote}>📌 {order.pickupPin.note}</Text>}
+                    </View>
+                    <View style={styles.infoBlock}>
+                        <Text style={styles.label}>จุดส่งสินค้า (Dropoff)</Text>
+                        <Text style={styles.value}>{order.customerAddress}</Text>
+                        {order.dropoffPin?.note && <Text style={styles.pinNote}>📌 {order.dropoffPin.note}</Text>}
+                    </View>
+
+                    {order.buyerNote && (
+                        <View style={styles.infoBlock}>
+                            <Text style={styles.label}>หมายเหตุจากลูกค้า</Text>
+                            <Text style={styles.note}>{order.buyerNote}</Text>
+                        </View>
+                    )}
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.row}>
+                        <Text style={styles.label}>ค่าจัดส่งที่จะได้รับ</Text>
+                        <Text style={styles.fee}>{order.deliveryFee} บาท</Text>
+                    </View>
                 </View>
-            )}
 
-            <View style={styles.actionContainer}>
-                {(order.status === 'WAITING_RIDER' || order.status === 'confirmed') && !order.riderName && (
-                    <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptJob}>
-                        <Text style={styles.acceptButtonText}>รับงานนี้</Text>
-                    </TouchableOpacity>
+                {/* Rider Rating Review Section - Only show if job is completed and rated */}
+                {order.status === 'COMPLETED' && order.riderRating && (
+                    <View style={styles.reviewContainer}>
+                        <Text style={styles.reviewTitle}>รีวิวจากลูกค้า</Text>
+                        <View style={styles.ratingRow}>
+                            <View style={styles.stars}>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <Ionicons
+                                        key={star}
+                                        name={star <= (order.riderRating || 0) ? "star" : "star-outline"}
+                                        size={24}
+                                        color="#FFD700"
+                                    />
+                                ))}
+                            </View>
+                            <Text style={styles.ratingValue}>{order.riderRating.toFixed(1)}</Text>
+                        </View>
+                        {order.riderReviewText && (
+                            <View style={styles.commentBox}>
+                                <Text style={styles.commentText}>"{order.riderReviewText}"</Text>
+                            </View>
+                        )}
+                    </View>
                 )}
 
-                {isMyJob && (order.status === 'assigned' || order.status === 'RIDER_HEADING_TO_STORE') && (
-                    <TouchableOpacity style={styles.actionButton} onPress={handlePickup}>
-                        <Text style={styles.actionButtonText}>ยืนยันรับของแล้ว</Text>
-                    </TouchableOpacity>
-                )}
+                <View style={styles.actionContainer}>
+                    {(order.status === 'WAITING_RIDER' || order.status === 'confirmed') && !order.riderName && (
+                        <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptJob}>
+                            <Text style={styles.acceptButtonText}>รับงานนี้</Text>
+                        </TouchableOpacity>
+                    )}
 
-                {isMyJob && (order.status === 'picked_up' || order.status === 'PICKED_UP' || order.status === 'RIDER_ARRIVED') && (
-                    <TouchableOpacity style={styles.actionButton} onPress={handleDelivered}>
-                        <Text style={styles.actionButtonText}>ยืนยันส่งของแล้ว</Text>
-                    </TouchableOpacity>
-                )}
+                    {isJobMine && (order.status === 'assigned' || order.status === 'RIDER_HEADING_TO_STORE') && (
+                        <TouchableOpacity style={styles.actionButton} onPress={handlePickup}>
+                            <Text style={styles.actionButtonText}>ยืนยันรับของแล้ว</Text>
+                        </TouchableOpacity>
+                    )}
 
-                {isMyJob && (order.status === 'delivered' || order.status === 'DELIVERED_WAITING_PAYMENT') && (
-                    <TouchableOpacity style={styles.completeButton} onPress={handleCompleteJob}>
-                        <Text style={styles.completeButtonText}>ปิดงาน</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
-        </ScrollView>
+                    {isJobMine && (order.status === 'picked_up' || order.status === 'PICKED_UP' || order.status === 'RIDER_ARRIVED') && (
+                        <TouchableOpacity style={styles.actionButton} onPress={handleDelivered}>
+                            <Text style={styles.actionButtonText}>ยืนยันส่งของแล้ว</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {isJobMine && (order.status === 'delivered' || order.status === 'DELIVERED_WAITING_PAYMENT') && (
+                        <TouchableOpacity style={styles.completeButton} onPress={handleCompleteJob}>
+                            <Text style={styles.completeButtonText}>ปิดงาน</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </ScrollView>
+        </View>
     );
 }
 
@@ -335,6 +439,12 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#263B3B',
     },
+    pinNote: {
+        fontSize: 12,
+        color: '#36D873',
+        marginTop: 2,
+        marginLeft: 4,
+    },
     statusBadge: {
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -355,25 +465,37 @@ const styles = StyleSheet.create({
         color: '#36D873',
         fontWeight: 'bold',
     },
+    // Map Styles
     mapContainer: {
-        backgroundColor: '#0F1A1A',
-        height: 150,
+        height: 250,
         borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
+        overflow: 'hidden',
         marginBottom: 20,
         borderWidth: 1,
         borderColor: '#263B3B',
+        position: 'relative',
     },
-    mapText: {
-        color: '#6A7A7A',
-        fontSize: 16,
-        fontWeight: 'bold',
+    map: {
+        width: '100%',
+        height: '100%',
     },
-    mapSubText: {
+    navButton: {
+        position: 'absolute',
+        bottom: 10,
+        right: 10,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#36D873',
+    },
+    navButtonText: {
         color: '#36D873',
-        fontSize: 12,
-        marginTop: 8,
+        fontWeight: 'bold',
+        marginLeft: 6,
     },
     actionContainer: {
         marginTop: 16,

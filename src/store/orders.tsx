@@ -1,6 +1,8 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
 import { OrderStatus } from '../utils/orderStatus';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../services/firebase';
+import { doc, updateDoc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 
 export type OrderItem = {
     productId: string;
@@ -34,6 +36,22 @@ export type Order = {
     riderPhone?: string;
     riderLocation?: { lat: number; lng: number }; // Legacy
     riderLiveLocation?: { lat: number; lng: number; updatedAt: number }; // New standard
+
+    // --- Pins ---
+    pickupPin?: {
+        lat: number;
+        lng: number;
+        note?: string;
+        updatedAt: number;
+        updatedBy: 'merchant' | 'customer' | 'admin';
+    };
+    dropoffPin?: {
+        lat: number;
+        lng: number;
+        note?: string;
+        updatedAt: number;
+        updatedBy: 'merchant' | 'customer' | 'admin';
+    };
 
     items: OrderItem[];
 
@@ -140,6 +158,11 @@ export type OrdersStore = {
     confirmDelivery: (orderId: string) => void;
     confirmDelivered: (orderId: string, review: { rating: number; comment: string }) => void;
     addBuyerReview: (orderId: string, review: BuyerReview) => void;
+
+    // --- Real-time & Pins ---
+    updatePickupPin: (orderId: string, lat: number, lng: number, note?: string) => Promise<void>;
+    updateDropoffPin: (orderId: string, lat: number, lng: number, note?: string) => Promise<void>;
+    startLiveTracking: (orderId: string) => () => void; // Returns unsubscribe function
 
     // Legacy Aliases
     riderPickup: (orderId: string) => void;
@@ -303,6 +326,95 @@ export const OrdersProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         } : o));
     };
 
+    // --- Real-time Implementations ---
+
+    const updatePickupPin = async (orderId: string, lat: number, lng: number, note?: string) => {
+        // 1. Update Local State
+        setOrders(prev => prev.map(o => o.id === orderId ? {
+            ...o,
+            pickupPin: {
+                lat,
+                lng,
+                note,
+                updatedAt: Date.now(),
+                updatedBy: 'merchant' // Assuming merchant for pickup
+            }
+        } : o));
+
+        // 2. Update Firestore (Fire & Forget for MVP speed, or await)
+        try {
+            const orderRef = doc(db, 'orders', orderId);
+            await updateDoc(orderRef, {
+                pickupPin: {
+                    lat,
+                    lng,
+                    note,
+                    updatedAt: Date.now(),
+                    updatedBy: 'merchant'
+                }
+            });
+        } catch (error) {
+            console.log("Error updating pickup pin on Firestore:", error);
+        }
+    };
+
+    const updateDropoffPin = async (orderId: string, lat: number, lng: number, note?: string) => {
+        // 1. Update Local State
+        setOrders(prev => prev.map(o => o.id === orderId ? {
+            ...o,
+            dropoffPin: {
+                lat,
+                lng,
+                note,
+                updatedAt: Date.now(),
+                updatedBy: 'customer' // Assuming customer for dropoff
+            }
+        } : o));
+
+        // 2. Update Firestore
+        try {
+            const orderRef = doc(db, 'orders', orderId);
+            await updateDoc(orderRef, {
+                dropoffPin: {
+                    lat,
+                    lng,
+                    note,
+                    updatedAt: Date.now(),
+                    updatedBy: 'customer'
+                }
+            });
+        } catch (error) {
+            console.log("Error updating dropoff pin on Firestore:", error);
+        }
+    };
+
+    const startLiveTracking = (orderId: string) => {
+        // Subscribe to Firestore document
+        const orderRef = doc(db, 'orders', orderId);
+        const unsubscribe = onSnapshot(orderRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // Merge meaningful fields into local state
+                setOrders(prev => prev.map(o => {
+                    if (o.id === orderId) {
+                        return {
+                            ...o,
+                            // Sync pins if changed remotely
+                            pickupPin: data.pickupPin || o.pickupPin,
+                            dropoffPin: data.dropoffPin || o.dropoffPin,
+                            // Sync status if changed remotely
+                            status: data.status || o.status,
+                            // Sync rider location if present
+                            riderLiveLocation: data.riderLiveLocation || o.riderLiveLocation
+                        };
+                    }
+                    return o;
+                }));
+            }
+        });
+        return unsubscribe;
+    };
+
     const cancelOrder = (id: string) => {
         setOrders(prev => prev.map(o => o.id === id ? {
             ...o,
@@ -419,7 +531,10 @@ export const OrdersProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             cancelOrder,
             rateRider,
             confirmDelivered,
-            addBuyerReview
+            addBuyerReview,
+            updatePickupPin,
+            updateDropoffPin,
+            startLiveTracking
         }}>
             {children}
         </OrdersContext.Provider>

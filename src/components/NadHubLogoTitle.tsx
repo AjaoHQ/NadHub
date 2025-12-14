@@ -5,7 +5,7 @@ export function NadHubLogoTitle() {
     return (
         <View style={styles.container}>
             <Image
-                source={require("../../assets/logo-nadhub-horizontal.png")}
+                source={require("../../assets/logonadhubhorizontal.png")}
                 style={styles.logo}
             />
         </View>

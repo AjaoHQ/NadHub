@@ -21,7 +21,7 @@ export default function NadHubLogoHeader({ size = "medium" }: Props) {
         <SafeAreaView style={styles.safe} edges={['top']}>
             <View style={[styles.wrapper, { paddingVertical: config.paddingVertical }]}>
                 <Image
-                    source={require("../../assets/logo-nadhub-horizontal.png")}
+                    source={require("../../assets/logonadhubhorizontal.png")}
                     style={[styles.logo, { height: config.height }]}
                     resizeMode="contain"
                 />

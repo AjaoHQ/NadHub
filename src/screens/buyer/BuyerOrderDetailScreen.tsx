@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Dimensions } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { BuyerStackParamList } from '../../types';
 import { useOrders } from '../../store/orders';
 import { Ionicons } from '@expo/vector-icons';
 import { getOrderStatusLabel, getOrderStatusColor } from '../../utils/orderStatus';
+import { MapPicker } from '../../components/MapPicker';
+import { PinMarker } from '../../components/PinMarker';
 
 type ScreenRouteProp = RouteProp<BuyerStackParamList, 'BuyerOrderDetail'>;
 
@@ -12,12 +15,20 @@ export default function BuyerOrderDetailScreen() {
     const route = useRoute<ScreenRouteProp>();
     const navigation = useNavigation();
     const { orderId } = route.params;
-    const { getOrderById, rateRider } = useOrders();
+    const { getOrderById, rateRider, updateDropoffPin, startLiveTracking } = useOrders();
     const order = getOrderById(orderId);
 
     const [rating, setRating] = useState(5);
     const [comment, setComment] = useState('');
     const [showRatingModal, setShowRatingModal] = useState(false);
+    const [showMapPicker, setShowMapPicker] = useState(false);
+
+    // Real-time listener
+    useEffect(() => {
+        if (!orderId) return;
+        const unsubscribe = startLiveTracking(orderId);
+        return () => unsubscribe();
+    }, [orderId]);
 
     if (!order) {
         return (
@@ -37,141 +48,205 @@ export default function BuyerOrderDetailScreen() {
         Alert.alert("ขอบคุณ", "รีวิวของคุณถูกส่งเรียบร้อยแล้ว");
     };
 
+    const handleSavePin = async (location: { lat: number; lng: number }, note: string) => {
+        await updateDropoffPin(orderId, location.lat, location.lng, note);
+        setShowMapPicker(false);
+    };
+
     const statusLabel = getOrderStatusLabel(order.status);
     const statusColor = getOrderStatusColor(order.status);
 
+    // Map Logic
+    const pickupLoc = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
+    const dropoffLoc = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
+    const riderLoc = order.riderLiveLocation || order.riderLocation;
+
     return (
-        <ScrollView style={styles.container}>
-            <View style={styles.card}>
-                <View style={styles.header}>
-                    <View>
-                        <Text style={styles.orderId}>Order #{order.id.slice(-6)}</Text>
-                        <TouchableOpacity onPress={() => navigation.navigate('OrderTracking' as never, { orderId: order.id } as never)}>
-                            <Text style={styles.trackLink}>ติดตามสถานะ {'>'}</Text>
-                        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+            <ScrollView style={styles.container}>
+                <View style={styles.card}>
+                    <View style={styles.header}>
+                        <View>
+                            <Text style={styles.orderId}>Order #{order.id.slice(-6)}</Text>
+                            <TouchableOpacity onPress={() => navigation.navigate('OrderTracking' as never, { orderId: order.id } as never)}>
+                                <Text style={styles.trackLink}>ติดตามสถานะ {'>'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                            <Text style={styles.statusText}>{statusLabel}</Text>
+                        </View>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                        <Text style={styles.statusText}>{statusLabel}</Text>
-                    </View>
-                </View>
 
-                {/* Status Section */}
-                <View style={styles.statusSection}>
-                    <Text style={styles.statusTitle}>สถานะปัจจุบัน:</Text>
-                    <Text style={[styles.statusValue, { color: statusColor }]}>{statusLabel}</Text>
-                    <Text style={styles.statusDesc}>
-                        {order.status === 'PENDING_STORE_CONFIRM' && "รอร้านค้ายืนยันออเดอร์ของคุณ"}
-                        {order.status === 'STORE_CONFIRMED' && "ร้านค้ารับออเดอร์แล้ว กำลังค้นหาไรเดอร์"}
-                        {order.status === 'WAITING_RIDER' && "กำลังค้นหาไรเดอร์เพื่อไปรับสินค้า"}
-                        {order.status === 'RIDER_HEADING_TO_STORE' && "ไรเดอร์รับงานแล้ว กำลังเดินทางไปร้านค้า"}
-                        {order.status === 'PICKED_UP' && "ไรเดอร์รับสินค้าแล้ว กำลังเดินทางมาหาคุณ"}
-                        {order.status === 'RIDER_ARRIVED' && "ไรเดอร์ถึงจุดส่งแล้ว กรุณาเตรียมรับสินค้า"}
-                        {order.status === 'DELIVERED_WAITING_PAYMENT' && "ส่งสินค้าแล้ว กรุณาชำระเงิน/ยืนยัน"}
-                        {order.status === 'COMPLETED' && "คำสั่งซื้อเสร็จสมบูรณ์ ขอบคุณที่ใช้บริการ"}
-                        {order.status === 'CANCELLED' && "คำสั่งซื้อถูกยกเลิก"}
-                    </Text>
-                </View>
-
-                {/* Rider Live Location Placeholder */}
-                {['RIDER_HEADING_TO_STORE', 'PICKED_UP', 'RIDER_ARRIVED'].includes(order.status) && order.riderLiveLocation && (
-                    <View style={styles.mapContainer}>
-                        <Text style={styles.mapText}>[ Live Map Placeholder ]</Text>
-                        <Text style={styles.mapSubText}>
-                            Rider is at: {order.riderLiveLocation.lat.toFixed(4)}, {order.riderLiveLocation.lng.toFixed(4)}
+                    {/* Status Section */}
+                    <View style={styles.statusSection}>
+                        <Text style={styles.statusTitle}>สถานะปัจจุบัน:</Text>
+                        <Text style={[styles.statusValue, { color: statusColor }]}>{statusLabel}</Text>
+                        <Text style={styles.statusDesc}>
+                            {order.status === 'PENDING_STORE_CONFIRM' && "รอร้านค้ายืนยันออเดอร์ของคุณ"}
+                            {order.status === 'STORE_CONFIRMED' && "ร้านค้ารับออเดอร์แล้ว กำลังค้นหาไรเดอร์"}
+                            {order.status === 'WAITING_RIDER' && "กำลังค้นหาไรเดอร์เพื่อไปรับสินค้า"}
+                            {order.status === 'RIDER_HEADING_TO_STORE' && "ไรเดอร์รับงานแล้ว กำลังเดินทางไปร้านค้า"}
+                            {order.status === 'PICKED_UP' && "ไรเดอร์รับสินค้าแล้ว กำลังเดินทางมาหาคุณ"}
+                            {order.status === 'RIDER_ARRIVED' && "ไรเดอร์ถึงจุดส่งแล้ว กรุณาเตรียมรับสินค้า"}
+                            {order.status === 'DELIVERED_WAITING_PAYMENT' && "ส่งสินค้าแล้ว กรุณาชำระเงิน/ยืนยัน"}
+                            {order.status === 'COMPLETED' && "คำสั่งซื้อเสร็จสมบูรณ์ ขอบคุณที่ใช้บริการ"}
+                            {order.status === 'CANCELLED' && "คำสั่งซื้อถูกยกเลิก"}
                         </Text>
                     </View>
-                )}
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>รายการสินค้า</Text>
-                    {order.items.map((item: any, index: number) => (
-                        <View key={index} style={styles.itemRow}>
-                            <Text style={styles.itemName}>{item.productName} x {item.quantity}</Text>
-                            <Text style={styles.itemPrice}>{item.price * item.quantity} บาท</Text>
-                        </View>
-                    ))}
-                    <View style={styles.divider} />
-                    <View style={styles.totalRow}>
-                        <Text style={styles.totalLabel}>ยอดรวมทั้งสิ้น</Text>
-                        <Text style={styles.totalPrice}>{order.grandTotal} บาท</Text>
+                    {/* MAP SECTION */}
+                    <View style={styles.mapPreviewContainer}>
+                        <MapView
+                            provider={PROVIDER_GOOGLE}
+                            style={styles.mapPreview}
+                            initialRegion={{
+                                latitude: dropoffLoc.lat,
+                                longitude: dropoffLoc.lng,
+                                latitudeDelta: 0.02,
+                                longitudeDelta: 0.02,
+                            }}
+                            scrollEnabled={false}
+                            zoomEnabled={false}
+                        >
+                            <PinMarker
+                                coordinate={{ latitude: pickupLoc.lat, longitude: pickupLoc.lng }}
+                                type="pickup"
+                                title="จุดรับสินค้า (ร้าน)"
+                            />
+                            <PinMarker
+                                coordinate={{ latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }}
+                                type="dropoff"
+                                title="จุดส่งสินค้า (คุณ)"
+                            />
+                            {riderLoc && (
+                                <PinMarker
+                                    coordinate={{ latitude: riderLoc.lat, longitude: riderLoc.lng }}
+                                    type="rider"
+                                    title={order.riderName || "Rider"}
+                                />
+                            )}
+                        </MapView>
+
+                        {/* Edit Button overlay - Only allow edit if not yet delivered */}
+                        {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && order.status !== 'DELIVERED_WAITING_PAYMENT' && (
+                            <TouchableOpacity
+                                style={styles.editMapBtn}
+                                onPress={() => setShowMapPicker(true)}
+                            >
+                                <Ionicons name="create-outline" size={20} color="#fff" />
+                                <Text style={styles.editMapText}>แก้ไขจุดส่ง</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {order.dropoffPin?.note && (
+                            <View style={styles.pinNote}>
+                                <Text style={styles.pinNoteText}>📌 {order.dropoffPin.note}</Text>
+                            </View>
+                        )}
                     </View>
-                </View>
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>ข้อมูลการจัดส่ง</Text>
-                    <Text style={styles.text}>ชื่อ: {order.customerName}</Text>
-                    <Text style={styles.text}>ที่อยู่: {order.customerAddress}</Text>
-                    <Text style={styles.text}>เบอร์โทร: {order.customerPhone || '-'}</Text>
-                    {order.riderName && (
-                        <Text style={styles.riderText}>ไรเดอร์: {order.riderName}</Text>
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>รายการสินค้า</Text>
+                        {order.items.map((item: any, index: number) => (
+                            <View key={index} style={styles.itemRow}>
+                                <Text style={styles.itemName}>{item.productName} x {item.quantity}</Text>
+                                <Text style={styles.itemPrice}>{item.price * item.quantity} บาท</Text>
+                            </View>
+                        ))}
+                        <View style={styles.divider} />
+                        <View style={styles.totalRow}>
+                            <Text style={styles.totalLabel}>ยอดรวมทั้งสิ้น</Text>
+                            <Text style={styles.totalPrice}>{order.grandTotal} บาท</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>ข้อมูลการจัดส่ง</Text>
+                        <Text style={styles.text}>ชื่อ: {order.customerName}</Text>
+                        <Text style={styles.text}>ที่อยู่: {order.customerAddress}</Text>
+                        <Text style={styles.text}>เบอร์โทร: {order.customerPhone || '-'}</Text>
+                        {order.riderName && (
+                            <Text style={styles.riderText}>ไรเดอร์: {order.riderName}</Text>
+                        )}
+                    </View>
+
+                    {/* Rate Rider Button */}
+                    {order.status === 'COMPLETED' && !order.riderRating && (
+                        <View style={styles.footer}>
+                            <TouchableOpacity style={styles.rateButton} onPress={() => setShowRatingModal(true)}>
+                                <Text style={styles.rateButtonText}>ให้คะแนนไรเดอร์</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {/* Display Rider Review if exists */}
+                    {order.riderRating && (
+                        <View style={styles.section}>
+                            <Text style={styles.sectionTitle}>รีวิวไรเดอร์ของคุณ</Text>
+                            <View style={styles.starRow}>
+                                {[...Array(order.riderRating)].map((_, i) => (
+                                    <Ionicons key={i} name="star" size={20} color="#FBC02D" />
+                                ))}
+                            </View>
+                            <Text style={styles.text}>"{order.riderReviewText}"</Text>
+                        </View>
                     )}
                 </View>
+                <Text style={styles.date}>{new Date(order.createdAt).toLocaleString('th-TH')}</Text>
 
-                {/* Rate Rider Button */}
-                {order.status === 'COMPLETED' && !order.riderRating && (
-                    <View style={styles.footer}>
-                        <TouchableOpacity style={styles.rateButton} onPress={() => setShowRatingModal(true)}>
-                            <Text style={styles.rateButtonText}>ให้คะแนนไรเดอร์</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-
-                {/* Display Rider Review if exists */}
-                {order.riderRating && (
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>รีวิวไรเดอร์ของคุณ</Text>
-                        <View style={styles.starRow}>
-                            {[...Array(order.riderRating)].map((_, i) => (
-                                <Ionicons key={i} name="star" size={20} color="#FBC02D" />
-                            ))}
-                        </View>
-                        <Text style={styles.text}>"{order.riderReviewText}"</Text>
-                    </View>
-                )}
-            </View>
-            <Text style={styles.date}>{new Date(order.createdAt).toLocaleString('th-TH')}</Text>
-
-            {/* Rating Modal */}
-            <Modal
-                visible={showRatingModal}
-                transparent={true}
-                animationType="slide"
-                onRequestClose={() => setShowRatingModal(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>ให้คะแนนไรเดอร์</Text>
-                        <View style={styles.starRowLarge}>
-                            {[1, 2, 3, 4, 5].map((star) => (
-                                <TouchableOpacity key={star} onPress={() => setRating(star)}>
-                                    <Ionicons
-                                        name={star <= rating ? "star" : "star-outline"}
-                                        size={40}
-                                        color="#FBC02D"
-                                    />
+                {/* Rating Modal */}
+                <Modal
+                    visible={showRatingModal}
+                    transparent={true}
+                    animationType="slide"
+                    onRequestClose={() => setShowRatingModal(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>ให้คะแนนไรเดอร์</Text>
+                            <View style={styles.starRowLarge}>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <TouchableOpacity key={star} onPress={() => setRating(star)}>
+                                        <Ionicons
+                                            name={star <= rating ? "star" : "star-outline"}
+                                            size={40}
+                                            color="#FBC02D"
+                                        />
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="เขียนรีวิวการบริการ..."
+                                placeholderTextColor="#6A7A7A"
+                                multiline
+                                value={comment}
+                                onChangeText={setComment}
+                            />
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity style={styles.cancelButton} onPress={() => setShowRatingModal(false)}>
+                                    <Text style={styles.cancelButtonText}>ยกเลิก</Text>
                                 </TouchableOpacity>
-                            ))}
-                        </View>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="เขียนรีวิวการบริการ..."
-                            placeholderTextColor="#6A7A7A"
-                            multiline
-                            value={comment}
-                            onChangeText={setComment}
-                        />
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity style={styles.cancelButton} onPress={() => setShowRatingModal(false)}>
-                                <Text style={styles.cancelButtonText}>ยกเลิก</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.submitButton} onPress={handleSubmitReview}>
-                                <Text style={styles.submitText}>ส่งรีวิว</Text>
-                            </TouchableOpacity>
+                                <TouchableOpacity style={styles.submitButton} onPress={handleSubmitReview}>
+                                    <Text style={styles.submitText}>ส่งรีวิว</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
-                </View>
-            </Modal>
-        </ScrollView>
+                </Modal>
+
+                {/* Map Picker Modal */}
+                <Modal visible={showMapPicker} animationType="slide">
+                    <MapPicker
+                        label="ระบุจุดส่งสินค้า (บ้าน/ออฟฟิศ)"
+                        placeholderNote="ระบุจุดสังเกตเพิ่มเติม"
+                        initialPin={dropoffLoc}
+                        onConfirm={handleSavePin}
+                        onCancel={() => setShowMapPicker(false)}
+                    />
+                </Modal>
+            </ScrollView>
+        </View>
     );
 }
 
@@ -238,25 +313,6 @@ const styles = StyleSheet.create({
     statusDesc: {
         fontSize: 14,
         color: '#B0B0B0',
-    },
-    mapContainer: {
-        height: 120,
-        backgroundColor: '#0F1A1A',
-        borderRadius: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#263B3B',
-    },
-    mapText: {
-        color: '#6A7A7A',
-        fontWeight: 'bold',
-    },
-    mapSubText: {
-        color: '#36D873',
-        fontSize: 12,
-        marginTop: 4,
     },
     section: {
         marginBottom: 20,
@@ -411,4 +467,48 @@ const styles = StyleSheet.create({
         color: '#001010',
         fontWeight: 'bold',
     },
+    // New Styles for Map
+    mapPreviewContainer: {
+        height: 200,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 20,
+        position: 'relative',
+        borderWidth: 1,
+        borderColor: '#1E3C33'
+    },
+    mapPreview: {
+        width: '100%',
+        height: '100%'
+    },
+    editMapBtn: {
+        position: 'absolute',
+        bottom: 10,
+        right: 10,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+    },
+    editMapText: {
+        color: '#fff',
+        marginLeft: 4,
+        fontSize: 12,
+        fontWeight: 'bold'
+    },
+    pinNote: {
+        position: 'absolute',
+        top: 10,
+        left: 10,
+        right: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        padding: 6,
+        borderRadius: 8,
+    },
+    pinNoteText: {
+        fontSize: 12,
+        color: '#333'
+    }
 });
