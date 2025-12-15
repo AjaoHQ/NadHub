@@ -12,7 +12,8 @@
           "photosPermission": "แอพต้องการเข้าถึงรูปภาพของคุณเพื่ออัปโหลดสินค้า",
           "cameraPermission": "แอพต้องการใช้กล้องของคุณเพื่อถ่ายภาพสินค้า"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "updates": {
       "enabled": false,
