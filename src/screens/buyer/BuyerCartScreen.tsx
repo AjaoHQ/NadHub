@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert, Modal } from 'react-native';
 import { useCart } from '../../store/cart_store';
 import { useOrders } from '../../store/orders';
 import { useAuth } from '../../store/auth';
@@ -7,6 +7,7 @@ import { calculateDeliveryFee } from '../../utils/shipping';
 import { calculateDiscount } from '../../store/discounts';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { MapPicker } from '../../components/MapPicker';
 
 export default function BuyerCartScreen() {
     const { cartItems, removeFromCart, updateQuantity, clearCart, itemsTotal } = useCart();
@@ -15,6 +16,11 @@ export default function BuyerCartScreen() {
     const navigation = useNavigation<any>();
 
     const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; amount: number } | null>(null);
+
+    // Customer Pin State
+    const [showMap, setShowMap] = useState(false);
+    const [deliveryPin, setDeliveryPin] = useState<{ lat: number; lng: number } | null>(null);
+    const [deliveryNote, setDeliveryNote] = useState("");
 
     // Mock distance for delivery fee
     const distanceKm = 5;
@@ -47,7 +53,8 @@ export default function BuyerCartScreen() {
             storeName: 'ร้านค้า NadHub',
             storePhone: '02-999-9999',
             storeAddress: '123 ตลาดนัดฮับ',
-            storeLocation: { lat: 13.7563, lng: 100.5018 }
+            storeLocation: { lat: 13.7563, lng: 100.5018 },
+            pickupPin: { lat: 13.7563, lng: 100.5018, note: 'หน้าร้าน', updatedAt: Date.now(), updatedBy: 'merchant' }
         };
 
         createOrder({
@@ -56,7 +63,17 @@ export default function BuyerCartScreen() {
             customerName: user.displayName || user.phone || 'Guest',
             customerPhone: user.phone,
             customerAddress: user.addressLine || "ที่อยู่จัดส่ง (Mock)",
-            customerLocation: { lat: 13.7563, lng: 100.5018 }, // Mock location
+            customerLocation: deliveryPin || { lat: 13.7563, lng: 100.5018 }, // Use pin or mock
+
+            // Pin Data
+            dropoffPin: deliveryPin ? {
+                lat: deliveryPin.lat,
+                lng: deliveryPin.lng,
+                note: deliveryNote,
+                updatedAt: Date.now(),
+                updatedBy: 'customer'
+            } : undefined,
+            pickupPin: mockStore.pickupPin,
 
             // Store Info
             ...mockStore,
@@ -104,6 +121,27 @@ export default function BuyerCartScreen() {
                 data={cartItems}
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.listContent}
+                ListHeaderComponent={() => (
+                    <View style={styles.addressSection}>
+                        <View style={styles.sectionHeader}>
+                            <Ionicons name="location-sharp" size={20} color="#FF9500" />
+                            <Text style={styles.sectionTitle}>ที่อยู่จัดส่ง</Text>
+                        </View>
+                        <Text style={styles.addressText}>
+                            {user?.addressLine || "กดปุ่มเพื่อระบุตำแหน่งจัดส่ง"}
+                        </Text>
+                        {deliveryPin && (
+                            <Text style={styles.pinText}>
+                                📌 ปักหมุดแล้ว: {deliveryNote || "ไม่มีข้อความระบุ"}
+                            </Text>
+                        )}
+                        <TouchableOpacity style={styles.pinButton} onPress={() => setShowMap(true)}>
+                            <Text style={styles.pinButtonText}>
+                                {deliveryPin ? "แก้ไขจุดส่งสินค้า" : "ปักหมุดจุดส่งสินค้า"}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
                 renderItem={({ item }) => (
                     <View style={styles.cartItem}>
                         <Image source={{ uri: item.imageUrl || 'https://via.placeholder.com/80' }} style={styles.itemImage} />
@@ -165,6 +203,20 @@ export default function BuyerCartScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            <Modal visible={showMap} animationType="slide">
+                <MapPicker
+                    label="ปักหมุดจุดส่งสินค้า"
+                    placeholderNote="จุดสังเกตสำหรับไรเดอร์ (เช่น บ้านรั้วสีขาว)"
+                    onConfirm={(loc, note) => {
+                        setDeliveryPin(loc);
+                        setDeliveryNote(note);
+                        setShowMap(false);
+                    }}
+                    onCancel={() => setShowMap(false)}
+                    initialPin={deliveryPin || undefined}
+                />
+            </Modal>
         </View>
     );
 }
@@ -199,6 +251,7 @@ const styles = StyleSheet.create({
     },
     listContent: {
         padding: 16,
+        paddingBottom: 240, // Space for footer
     },
     cartItem: {
         flexDirection: 'row',
@@ -258,10 +311,19 @@ const styles = StyleSheet.create({
         color: '#FF9500',
     },
     footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
         backgroundColor: '#fff',
         padding: 16,
         borderTopWidth: 1,
         borderTopColor: '#eee',
+        elevation: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
     summaryRow: {
         flexDirection: 'row',
@@ -324,5 +386,48 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    addressSection: {
+        backgroundColor: '#fff',
+        padding: 16,
+        borderRadius: 8,
+        marginBottom: 16,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 8,
+        color: '#333',
+    },
+    addressText: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 8,
+        lineHeight: 20,
+    },
+    pinText: {
+        fontSize: 14,
+        color: '#FF9500',
+        marginBottom: 8,
+        fontStyle: 'italic',
+    },
+    pinButton: {
+        backgroundColor: '#FFF4E5',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 4,
+        alignSelf: 'flex-start',
+        borderWidth: 1,
+        borderColor: '#FF9500',
+    },
+    pinButtonText: {
+        color: '#FF9500',
+        fontSize: 14,
+        fontWeight: '600',
     },
 });

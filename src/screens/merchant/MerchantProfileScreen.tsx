@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView, Alert, TouchableOpacity, Image, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView, Alert, TouchableOpacity, Image, ActivityIndicator, TextInput, Modal } from 'react-native';
 import { useAuth } from '../../store/auth';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+
+import { MapPicker } from '../../components/MapPicker';
+import { getShopPin, saveShopPin } from '../../services/pins';
+import { PinLocation } from '../../types/pins';
 
 export default function MerchantProfileScreen() {
     const { user, updateProfile, logout, refreshUser } = useAuth();
@@ -17,11 +21,25 @@ export default function MerchantProfileScreen() {
     const [shopName, setShopName] = useState(user?.merchantName || user?.displayName || "");
     const [isEditingName, setIsEditingName] = useState(false);
 
+    // Shop Pin State
+    const [showMapPicker, setShowMapPicker] = useState(false);
+    const [shopPin, setShopPin] = useState<PinLocation | null>(null);
+
     useFocusEffect(
         useCallback(() => {
             refreshUser();
+            loadShopPin();
         }, [])
     );
+
+    const loadShopPin = async () => {
+        if (user?.id) {
+            const pin = await getShopPin(user.id); // Assuming user.id is shopId for 1:1 mapping
+            if (pin) {
+                setShopPin(pin);
+            }
+        }
+    };
 
     useEffect(() => {
         if (user?.merchantImage) {
@@ -87,6 +105,18 @@ export default function MerchantProfileScreen() {
             Alert.alert("เกิดข้อผิดพลาด", "ไม่สามารถบันทึกข้อมูลได้");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handlePinConfirm = async (location: { lat: number; lng: number }, note: string) => {
+        if (!user?.id) return;
+        const success = await saveShopPin(user.id, location, note);
+        if (success) {
+            setShopPin({ ...location, address: note, updatedAt: Date.now() });
+            setShowMapPicker(false);
+            Alert.alert("สำเร็จ", "บันทึกพิกัดร้านค้าแล้ว");
+        } else {
+            Alert.alert("ผิดพลาด", "ไม่สามารถบันทึกพิกัดได้");
         }
     };
 
@@ -203,6 +233,25 @@ export default function MerchantProfileScreen() {
             {/* เมนูต่าง ๆ ของร้าน */}
             <View style={styles.menuSection}>
                 <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>ที่ตั้งร้านค้า</Text>
+                    <TouchableOpacity style={styles.menuItem} onPress={() => setShowMapPicker(true)}>
+                        <Ionicons name="location-outline" size={24} color="#007AFF" />
+                        <View style={styles.textWrapper}>
+                            <Text style={styles.menuText}>
+                                {shopPin ? "แก้ไขตำแหน่งร้าน" : "ตั้งค่าตำแหน่งร้าน"}
+                            </Text>
+                            {shopPin && (
+                                <Text style={styles.rowSubLabel} numberOfLines={1}>
+                                    {shopPin.lat.toFixed(4)}, {shopPin.lng.toFixed(4)}
+                                    {shopPin.address ? ` - ${shopPin.address}` : ''}
+                                </Text>
+                            )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.section}>
                     <Text style={styles.sectionTitle}>สถานะร้านค้า</Text>
                     <View style={styles.row}>
                         <View style={styles.rowInfo}>
@@ -239,6 +288,22 @@ export default function MerchantProfileScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            <Modal visible={showMapPicker} animationType="slide">
+                <MapPicker
+                    label="ปักหมุดตำแหน่งร้านค้า"
+                    placeholderNote="รายละเอียดเพิ่มเติม (เช่น ตึก, ชั้น, ซอย)"
+                    initialPin={shopPin ? { lat: shopPin.lat, lng: shopPin.lng } : undefined}
+                    initialRegion={shopPin ? {
+                        latitude: shopPin.lat,
+                        longitude: shopPin.lng,
+                        latitudeDelta: 0.005,
+                        longitudeDelta: 0.005
+                    } : undefined}
+                    onConfirm={handlePinConfirm}
+                    onCancel={() => setShowMapPicker(false)}
+                />
+            </Modal>
         </ScrollView>
     );
 }
@@ -375,6 +440,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginLeft: 12,
         fontWeight: '500',
+        color: '#000',
     },
     nameContainer: {
         flexDirection: 'row',

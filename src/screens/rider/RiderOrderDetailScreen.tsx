@@ -12,6 +12,7 @@ import { useProducts } from '../../store/products';
 import { Ionicons } from '@expo/vector-icons';
 import { getOrderStatusLabel, getOrderStatusColor, OrderStatus } from '../../utils/orderStatus';
 import { PinMarker } from '../../components/PinMarker';
+import { openNavigationApp } from '../../services/pins';
 
 type RiderOrderDetailRouteProp = RouteProp<RiderStackParamList, 'RiderOrderDetail'>;
 type NavigationProp = NativeStackNavigationProp<RiderStackParamList, 'RiderOrderDetail'>;
@@ -256,10 +257,23 @@ export default function RiderOrderDetailScreen() {
                                 )}
                             </MapView>
 
-                            <TouchableOpacity style={styles.navButton} onPress={openGoogleMaps}>
-                                <Ionicons name="navigate-circle" size={32} color="#36D873" />
-                                <Text style={styles.navButtonText}>นำทาง Maps</Text>
-                            </TouchableOpacity>
+                            <View style={styles.navConfigContainer}>
+                                <TouchableOpacity
+                                    style={[styles.navButton, { marginBottom: 8 }]}
+                                    onPress={() => openNavigationApp(pickupLoc.lat, pickupLoc.lng, "ร้านค้า")}
+                                >
+                                    <Ionicons name="storefront" size={20} color="#36D873" />
+                                    <Text style={styles.navButtonText}>นำทางไปร้าน</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.navButton}
+                                    onPress={() => openNavigationApp(dropoffLoc.lat, dropoffLoc.lng, "ลูกค้า")}
+                                >
+                                    <Ionicons name="person" size={20} color="#36D873" />
+                                    <Text style={styles.navButtonText}>นำทางไปส่ง</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     )}
 
@@ -480,9 +494,6 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     navButton: {
-        position: 'absolute',
-        bottom: 10,
-        right: 10,
         backgroundColor: 'rgba(0,0,0,0.8)',
         flexDirection: 'row',
         alignItems: 'center',
@@ -491,11 +502,18 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         borderWidth: 1,
         borderColor: '#36D873',
+        alignSelf: 'flex-end',
     },
     navButtonText: {
         color: '#36D873',
         fontWeight: 'bold',
         marginLeft: 6,
+    },
+    navConfigContainer: {
+        position: 'absolute',
+        bottom: 10,
+        right: 10,
+        alignItems: 'flex-end',
     },
     actionContainer: {
         marginTop: 16,
