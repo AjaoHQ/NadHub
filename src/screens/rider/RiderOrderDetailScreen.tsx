@@ -10,7 +10,7 @@ import { useAuth } from '../../store/auth';
 import { useProducts } from '../../store/products';
 import { PinMarker } from '../../components/PinMarker';
 import { getOrderStatusLabel, getOrderStatusColor } from "../../utils/orderStatus";
-import { openNavigationApp } from '../../services/pins';
+import { openNavigationApp, navigateToPin } from '../../services/pins';
 
 type RiderOrderDetailRouteProp = RouteProp<{ RiderOrderDetail: { orderId: string } }, 'RiderOrderDetail'>;
 
@@ -251,7 +251,10 @@ export default function RiderOrderDetailScreen() {
                             <View style={styles.navConfigContainer}>
                                 <TouchableOpacity
                                     style={[styles.navButton, { marginBottom: 8 }]}
-                                    onPress={() => openNavigationApp(pickupLoc.latitude, pickupLoc.longitude, "ร้านค้า")}
+                                    onPress={() => navigateToPin({
+                                        ...pickupLoc,
+                                        addressText: order.pickupPin?.addressText || order.storeAddress
+                                    }, "ร้านค้า")}
                                 >
                                     <Ionicons name="storefront" size={20} color="#36D873" />
                                     <Text style={styles.navButtonText}>นำทางไปร้าน</Text>
@@ -259,7 +262,10 @@ export default function RiderOrderDetailScreen() {
 
                                 <TouchableOpacity
                                     style={styles.navButton}
-                                    onPress={() => openNavigationApp(dropoffLoc.latitude, dropoffLoc.longitude, "ลูกค้า")}
+                                    onPress={() => navigateToPin({
+                                        ...dropoffLoc,
+                                        addressText: order.dropoffPin?.addressText || order.customerAddress
+                                    }, "ลูกค้า")}
                                 >
                                     <Ionicons name="person" size={20} color="#36D873" />
                                     <Text style={styles.navButtonText}>นำทางไปส่ง</Text>

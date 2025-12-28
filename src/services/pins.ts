@@ -64,3 +64,31 @@ export const openNavigationApp = (latitude: number, longitude: number, label: st
         Linking.openURL(url).catch(err => console.error('An error occurred opening the map', err));
     }
 };
+
+export const navigateToPin = (pin: PinLocation, label: string = 'Destination') => {
+    // 1. Try Coordinates First
+    const lat = pin.lat ?? pin.latitude ?? 0;
+    const lng = pin.lng ?? pin.longitude ?? 0;
+
+    if (lat !== 0 && lng !== 0) {
+        openNavigationApp(lat, lng, label);
+        return;
+    }
+
+    // 2. Fallback to Address Text
+    if (pin.addressText) {
+        const query = encodeURIComponent(pin.addressText);
+        const url = Platform.select({
+            ios: `maps:0,0?q=${query}`,
+            android: `geo:0,0?q=${query}`
+        });
+
+        if (url) {
+            Linking.openURL(url).catch(err => console.error('An error occurred opening the map with address', err));
+        }
+        return;
+    }
+
+    // 3. No data
+    console.warn("Cannot navigate: Pin has no coordinates and no address text");
+};
