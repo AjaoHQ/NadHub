@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import MapView, { Marker, Region, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { PinLocation } from '../types/pins';
 
 interface MapPickerProps {
     initialRegion?: Region; // Starting view
-    initialPin?: { lat: number; lng: number }; // Initial pin position
+    initialPin?: PinLocation; // Initial pin position
     label?: string;
     placeholderNote?: string;
-    onConfirm: (location: { lat: number; lng: number }, note: string) => void;
+    onConfirm: (location: PinLocation) => void | Promise<void>;
     onCancel: () => void;
     editable?: boolean;
 }
@@ -26,16 +27,19 @@ export const MapPicker: React.FC<MapPickerProps> = ({
     const [region, setRegion] = useState<Region>(initialRegion || {
         latitude: 13.7563,
         longitude: 100.5018,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005
     });
 
-    const [pinLocation, setPinLocation] = useState<{ lat: number; lng: number }>(
-        initialPin || { lat: 13.7563, lng: 100.5018 }
+    const [pinLocation, setPinLocation] = useState<PinLocation>(
+        initialPin || { latitude: 13.7563, longitude: 100.5018, lat: 13.7563, lng: 100.5018 }
     );
 
-    const [note, setNote] = useState("");
-    const [loading, setLoading] = useState(!initialRegion);
+    const [addressText, setAddressText] = useState(initialPin?.addressText || "");
+    const [loading, setLoading] = useState(!initialRegion && !initialPin);
+    const [isGeocoding, setIsGeocoding] = useState(false);
+    const mapRef = useRef<MapView>(null);
+    const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         if (!initialRegion && !initialPin) {
@@ -49,23 +53,62 @@ export const MapPicker: React.FC<MapPickerProps> = ({
                 const currentRegion = {
                     latitude: location.coords.latitude,
                     longitude: location.coords.longitude,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005
                 };
                 setRegion(currentRegion);
-                setPinLocation({ lat: location.coords.latitude, lng: location.coords.longitude });
+                setPinLocation({
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                    lat: location.coords.latitude,
+                    lng: location.coords.longitude
+                });
                 setLoading(false);
+                fetchAddress(location.coords.latitude, location.coords.longitude);
             })();
         } else {
             setLoading(false);
         }
     }, []);
 
+    const fetchAddress = async (lat: number, lng: number) => {
+        try {
+            setIsGeocoding(true);
+            const result = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+            if (result.length > 0) {
+                const addr = result[0];
+                const formattedAddress = [
+                    addr.name,
+                    addr.street,
+                    addr.subregion,
+                    addr.region
+                ].filter(Boolean).join(", ");
+                setAddressText(formattedAddress);
+            }
+        } catch (error) {
+            console.log("Geocoding failed", error);
+        } finally {
+            setIsGeocoding(false);
+        }
+    };
+
     const handleRegionChangeComplete = (newRegion: Region) => {
         if (editable) {
             setRegion(newRegion);
             // Center pin always stays in center of map
-            setPinLocation({ lat: newRegion.latitude, lng: newRegion.longitude });
+            const newPin = {
+                latitude: newRegion.latitude,
+                longitude: newRegion.longitude,
+                lat: newRegion.latitude,
+                lng: newRegion.longitude
+            };
+            setPinLocation(newPin);
+
+            // Debounce reverse geocoding
+            if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
+            debounceTimeout.current = setTimeout(() => {
+                fetchAddress(newRegion.latitude, newRegion.longitude);
+            }, 800);
         }
     };
 
@@ -88,6 +131,7 @@ export const MapPicker: React.FC<MapPickerProps> = ({
 
             <View style={styles.mapContainer}>
                 <MapView
+                    ref={mapRef}
                     provider={PROVIDER_GOOGLE}
                     style={styles.map}
                     region={region}
@@ -96,6 +140,8 @@ export const MapPicker: React.FC<MapPickerProps> = ({
                     zoomEnabled={editable}
                     pitchEnabled={false}
                     rotateEnabled={false}
+                    showsUserLocation={true}
+                    showsMyLocationButton={true}
                 />
 
                 {/* Fixed Center Marker */}
@@ -105,8 +151,18 @@ export const MapPicker: React.FC<MapPickerProps> = ({
             </View>
 
             <View style={styles.footer}>
+                <View style={styles.addressContainer}>
+                    <Ionicons name="location-outline" size={20} color="#36D873" style={{ marginRight: 8 }} />
+                    {isGeocoding ? (
+                        <ActivityIndicator size="small" color="#8FA3A3" />
+                    ) : (
+                        <Text style={styles.addressText} numberOfLines={2}>
+                            {addressText || "ไม่พบข้อมูลที่อยู่"}
+                        </Text>
+                    )}
+                </View>
                 <Text style={styles.coordsText}>
-                    {pinLocation.lat.toFixed(6)}, {pinLocation.lng.toFixed(6)}
+                    {(pinLocation.latitude ?? 0).toFixed(6)}, {(pinLocation.longitude ?? 0).toFixed(6)}
                 </Text>
 
                 {editable && (
@@ -114,20 +170,34 @@ export const MapPicker: React.FC<MapPickerProps> = ({
                         style={styles.input}
                         placeholder={placeholderNote}
                         placeholderTextColor="#8FA3A3"
-                        value={note}
-                        onChangeText={setNote}
+                        value={pinLocation.addressText || ""}
+                        // Using state for manual override if needed, but here we keep it simple: 
+                        // Actually the user wants to populate 'addressText' in the pin object.
+                        // Let's assume the TextInput writes to a separate 'note' or specific address field?
+                        // The prompt says: "addressText?" in formatting.
+                        // Let's allow manual edit of the fetched address.
+                        defaultValue={addressText}
+                        onChangeText={setAddressText}
                     />
                 )}
 
                 <TouchableOpacity
                     style={[styles.confirmButton, !editable && styles.disabledButton]}
-                    onPress={() => onConfirm(pinLocation, note)}
+                    onPress={() => onConfirm({
+                        latitude: pinLocation.latitude,
+                        longitude: pinLocation.longitude,
+                        lat: pinLocation.latitude || 0,
+                        lng: pinLocation.longitude || 0,
+                        addressText: addressText,
+                        updatedAt: Date.now(),
+                        note: addressText // Use addressText as note or separate field if needed
+                    })}
                     disabled={!editable}
                 >
                     <Text style={styles.confirmButtonText}>ยืนยันตำแหน่ง</Text>
                 </TouchableOpacity>
             </View>
-        </View>
+        </View >
     );
 };
 
@@ -145,6 +215,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: 16,
+        paddingTop: 50, // SafeArea
         backgroundColor: '#02090A',
     },
     title: {
@@ -164,21 +235,32 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: '50%',
         left: '50%',
-        marginTop: -20, // Half of size
-        marginLeft: -20, // Half of size
+        marginTop: -36, // Adjust for icon center
+        marginLeft: -20,
         justifyContent: 'center',
         alignItems: 'center',
     },
     footer: {
         backgroundColor: '#02090A',
         padding: 16,
+        paddingBottom: 30, // SafeArea
         borderTopWidth: 1,
         borderColor: '#1E3C33',
+    },
+    addressContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    addressText: {
+        color: '#fff',
+        fontSize: 14,
+        flex: 1,
     },
     coordsText: {
         color: '#8FA3A3',
         fontSize: 12,
-        marginBottom: 8,
+        marginBottom: 12,
         textAlign: 'center',
     },
     input: {

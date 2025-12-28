@@ -1,12 +1,17 @@
 export type PinLocation = {
-    lat: number;
-    lng: number;
-    address?: string; // Optional text address
-    note?: string; // Optional driver note
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
+    addressText?: string;
+    note?: string;
     updatedAt?: number;
+    updatedBy?: "merchant" | "customer" | "admin";
 };
 
-export type ShopPinConfig = {
-    shopId: string;
-    pin: PinLocation;
-};
+// Helper to normalize to guaranteed { latitude, longitude }
+export function normalizePinLocation(pin: PinLocation): { latitude: number; longitude: number } {
+    const lat = pin.latitude ?? pin.lat ?? 0;
+    const lng = pin.longitude ?? pin.lng ?? 0;
+    return { latitude: lat, longitude: lng };
+}

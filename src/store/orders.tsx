@@ -1,8 +1,10 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
-import { OrderStatus } from '../utils/orderStatus';
+import { OrderStatus as _OrderStatus } from '../utils/orderStatus';
+export type OrderStatus = _OrderStatus;
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../services/firebase';
 import { doc, updateDoc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { PinLocation } from '../types/pins';
 
 export type OrderItem = {
     productId: string;
@@ -38,20 +40,20 @@ export type Order = {
     riderLiveLocation?: { lat: number; lng: number; updatedAt: number }; // New standard
 
     // --- Pins ---
-    pickupPin?: {
-        lat: number;
-        lng: number;
-        note?: string;
-        updatedAt: number;
-        updatedBy: 'merchant' | 'customer' | 'admin';
-    };
-    dropoffPin?: {
-        lat: number;
-        lng: number;
-        note?: string;
-        updatedAt: number;
-        updatedBy: 'merchant' | 'customer' | 'admin';
-    };
+    // ✅ Use these for Rider/Driver app
+    pickupPin?: PinLocation & { updatedBy: 'merchant' | 'customer' | 'admin' };
+    dropoffPin?: PinLocation & { updatedBy: 'merchant' | 'customer' | 'admin' };
+
+    // ❌ Deprecated / Legacy Encoded Fields (Do not use)
+    // ⚠️ Do not use these fields. Rider UI must read addressText from PinLocation only.
+    /** @deprecated Do not use. Rider UI must read addressText from PinLocation only. */
+    pickupText?: string;
+    /** @deprecated Do not use. Rider UI must read addressText from PinLocation only. */
+    dropoffText?: string;
+    /** @deprecated Do not use. Rider UI must read addressText from PinLocation only. */
+    noteEncoded?: string;
+    /** @deprecated Do not use. Rider UI must read addressText from PinLocation only. */
+    detailEncoded?: string;
 
     items: OrderItem[];
 
@@ -197,6 +199,17 @@ export const OrdersProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     // --- Actions Implementation ---
 
+    const normalizeStrictPin = (p: any): (PinLocation & { updatedBy: any }) | undefined => {
+        if (!p) return undefined;
+        return {
+            ...p,
+            lat: p.lat ?? p.latitude ?? 0,
+            lng: p.lng ?? p.longitude ?? 0,
+            latitude: p.latitude ?? p.lat ?? 0,
+            longitude: p.longitude ?? p.lng ?? 0,
+        };
+    };
+
     const createOrder = (orderData: any): Order => {
         const firstItem = orderData.items?.[0];
         const now = new Date().toISOString();
@@ -233,6 +246,12 @@ export const OrdersProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             total: orderData.grandTotal || 0,
             items: orderData.items || []
         };
+
+        // 🛡️ Sanitize: Ensure no deprecated/encoded fields are saved
+        delete (newOrder as any).pickupText;
+        delete (newOrder as any).dropoffText;
+        delete (newOrder as any).noteEncoded;
+        delete (newOrder as any).detailEncoded;
 
         setOrders((prev) => [newOrder, ...prev]);
         return newOrder;
@@ -400,8 +419,8 @@ export const OrdersProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                         return {
                             ...o,
                             // Sync pins if changed remotely
-                            pickupPin: data.pickupPin || o.pickupPin,
-                            dropoffPin: data.dropoffPin || o.dropoffPin,
+                            pickupPin: normalizeStrictPin(data.pickupPin) || o.pickupPin,
+                            dropoffPin: normalizeStrictPin(data.dropoffPin) || o.dropoffPin,
                             // Sync status if changed remotely
                             status: data.status || o.status,
                             // Sync rider location if present

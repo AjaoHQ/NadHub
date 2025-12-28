@@ -8,12 +8,12 @@ import {
     TouchableOpacity,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { ProductCard, Product } from "../components/ProductCard";
-import { useProducts } from "../store/products";
+import { ProductCard } from "../components/ProductCard";
+import { useProducts, Product } from "../store/products";
 import { PRODUCT_CATEGORIES, ProductCategoryId } from "../constants/categories";
 
 export default function MarketScreen() {
-    const navigation = useNavigation();
+    const navigation = useNavigation<any>();
     const { products, isLoading } = useProducts();
     const [search, setSearch] = useState("");
 
@@ -38,7 +38,6 @@ export default function MarketScreen() {
             list = list.filter(
                 (p) =>
                     p.name.toLowerCase().includes(q) ||
-                    (p.description && p.description.toLowerCase().includes(q)) ||
                     (p.merchantName && p.merchantName.toLowerCase().includes(q))
             );
         }
@@ -59,8 +58,8 @@ export default function MarketScreen() {
                 isStoreOpen={isStoreOpen}
                 onPress={() =>
                     navigation.navigate(
-                        "ProductDetail" as never,
-                        { productId: item.id } as never
+                        "ProductDetail" as any,
+                        { productId: item.id } as any
                     )
                 }
             />

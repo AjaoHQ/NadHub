@@ -5,17 +5,17 @@ import { useAuth, Address } from '../../store/auth';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function AddressListScreen() {
-    const navigation = useNavigation();
+    const navigation = useNavigation<any>();
     const { user, setDefaultAddress, removeAddress } = useAuth();
     const addresses = user?.addresses || [];
 
     const handleAddAddress = () => {
-        navigation.navigate('EditAddress' as never);
+        navigation.navigate('EditAddress' as any);
     };
 
     const handleEditAddress = (address: Address) => {
         // Pass existing address to edit
-        navigation.navigate('EditAddress' as never, { address } as never);
+        navigation.navigate('EditAddress' as any, { address } as any);
     };
 
     const renderItem = ({ item }: { item: Address }) => (

@@ -11,7 +11,17 @@ export const getShopPin = async (shopId: string): Promise<PinLocation | null> =>
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             const data = docSnap.data();
-            return data.pin || null;
+            const rawPin = data.pin;
+            if (!rawPin) return null;
+
+            // Normalize to ensure lat/lng exist
+            return {
+                ...rawPin,
+                lat: rawPin.lat ?? rawPin.latitude ?? 0,
+                lng: rawPin.lng ?? rawPin.longitude ?? 0,
+                latitude: rawPin.latitude ?? rawPin.lat ?? 0,
+                longitude: rawPin.longitude ?? rawPin.lng ?? 0,
+            };
         }
         return null;
     } catch (error) {
@@ -20,18 +30,18 @@ export const getShopPin = async (shopId: string): Promise<PinLocation | null> =>
     }
 };
 
-export const saveShopPin = async (shopId: string, location: { lat: number; lng: number }, address?: string) => {
+export const saveShopPin = async (shopId: string, pinData: PinLocation) => {
     try {
         const docRef = doc(db, 'shops', shopId);
-        const pinData: PinLocation = {
-            lat: location.lat,
-            lng: location.lng,
-            address: address || '',
-            updatedAt: Date.now()
+        const payload = {
+            pin: {
+                ...pinData,
+                updatedAt: Date.now()
+            }
         };
 
         // Merge with existing shop data
-        await setDoc(docRef, { pin: pinData }, { merge: true });
+        await setDoc(docRef, payload, { merge: true });
         return true;
     } catch (error) {
         console.error("Error saving shop pin:", error);
@@ -41,9 +51,9 @@ export const saveShopPin = async (shopId: string, location: { lat: number; lng: 
 
 // --- Navigation Utilities ---
 
-export const openNavigationApp = (lat: number, lng: number, label: string = 'Destination') => {
+export const openNavigationApp = (latitude: number, longitude: number, label: string = 'Destination') => {
     const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
-    const latLng = `${lat},${lng}`;
+    const latLng = `${latitude},${longitude}`;
 
     const url = Platform.select({
         ios: `${scheme}${label}@${latLng}`,

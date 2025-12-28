@@ -8,12 +8,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { getOrderStatusLabel, getOrderStatusColor } from '../../utils/orderStatus';
 import { MapPicker } from '../../components/MapPicker';
 import { PinMarker } from '../../components/PinMarker';
+import { PinLocation } from '../../types/pins';
 
 type ScreenRouteProp = RouteProp<BuyerStackParamList, 'BuyerOrderDetail'>;
 
 export default function BuyerOrderDetailScreen() {
-    const route = useRoute<ScreenRouteProp>();
-    const navigation = useNavigation();
+    const route = useRoute<any>();
+    const navigation = useNavigation<any>();
     const { orderId } = route.params;
     const { getOrderById, rateRider, updateDropoffPin, startLiveTracking } = useOrders();
     const order = getOrderById(orderId);
@@ -48,8 +49,10 @@ export default function BuyerOrderDetailScreen() {
         Alert.alert("ขอบคุณ", "รีวิวของคุณถูกส่งเรียบร้อยแล้ว");
     };
 
-    const handleSavePin = async (location: { lat: number; lng: number }, note: string) => {
-        await updateDropoffPin(orderId, location.lat, location.lng, note);
+    const handleSavePin = async (location: PinLocation) => {
+        const lat = location.latitude ?? location.lat ?? 0;
+        const lng = location.longitude ?? location.lng ?? 0;
+        await updateDropoffPin(orderId, lat, lng, location.note);
         setShowMapPicker(false);
     };
 
@@ -57,9 +60,37 @@ export default function BuyerOrderDetailScreen() {
     const statusColor = getOrderStatusColor(order.status);
 
     // Map Logic
-    const pickupLoc = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
-    const dropoffLoc = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
+    // Map Logic
+    const pickupLoc = {
+        latitude: order.pickupPin?.latitude ?? order.pickupPin?.lat ?? order.storeLocation?.lat ?? 13.7563,
+        longitude: order.pickupPin?.longitude ?? order.pickupPin?.lng ?? order.storeLocation?.lng ?? 100.5018,
+        lat: order.pickupPin?.lat ?? 13.7563,
+        lng: order.pickupPin?.lng ?? 100.5018
+    };
+
+    // Ensure we handle potentially missing customerLocation by providing defaults if both are missing
+    const dropoffLoc = order.dropoffPin ? {
+        latitude: order.dropoffPin.latitude ?? order.dropoffPin.lat ?? 13.7563,
+        longitude: order.dropoffPin.longitude ?? order.dropoffPin.lng ?? 100.5018,
+        lat: order.dropoffPin.lat ?? 13.7563,
+        lng: order.dropoffPin.lng ?? 100.5018,
+        note: order.dropoffPin.note
+    } : (order.customerLocation ? {
+        latitude: order.customerLocation.lat,
+        longitude: order.customerLocation.lng,
+        lat: order.customerLocation.lat,
+        lng: order.customerLocation.lng
+    } : {
+        latitude: 13.7563,
+        longitude: 100.5018,
+        lat: 13.7563,
+        lng: 100.5018
+    });
     const riderLoc = order.riderLiveLocation || order.riderLocation;
+    const ridersLocObj = riderLoc ? {
+        latitude: riderLoc.lat,
+        longitude: riderLoc.lng
+    } : null;
 
     return (
         <View style={{ flex: 1 }}>
@@ -68,7 +99,7 @@ export default function BuyerOrderDetailScreen() {
                     <View style={styles.header}>
                         <View>
                             <Text style={styles.orderId}>Order #{order.id.slice(-6)}</Text>
-                            <TouchableOpacity onPress={() => navigation.navigate('OrderTracking' as never, { orderId: order.id } as never)}>
+                            <TouchableOpacity onPress={() => navigation.navigate('OrderTracking' as any, { orderId: order.id } as any)}>
                                 <Text style={styles.trackLink}>ติดตามสถานะ {'>'}</Text>
                             </TouchableOpacity>
                         </View>
@@ -100,8 +131,8 @@ export default function BuyerOrderDetailScreen() {
                             provider={PROVIDER_GOOGLE}
                             style={styles.mapPreview}
                             initialRegion={{
-                                latitude: dropoffLoc.lat,
-                                longitude: dropoffLoc.lng,
+                                latitude: dropoffLoc.latitude,
+                                longitude: dropoffLoc.longitude,
                                 latitudeDelta: 0.02,
                                 longitudeDelta: 0.02,
                             }}
@@ -109,18 +140,18 @@ export default function BuyerOrderDetailScreen() {
                             zoomEnabled={false}
                         >
                             <PinMarker
-                                coordinate={{ latitude: pickupLoc.lat, longitude: pickupLoc.lng }}
+                                coordinate={{ latitude: pickupLoc.latitude, longitude: pickupLoc.longitude }}
                                 type="pickup"
                                 title="จุดรับสินค้า (ร้าน)"
                             />
                             <PinMarker
-                                coordinate={{ latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }}
+                                coordinate={{ latitude: dropoffLoc.latitude, longitude: dropoffLoc.longitude }}
                                 type="dropoff"
                                 title="จุดส่งสินค้า (คุณ)"
                             />
-                            {riderLoc && (
+                            {ridersLocObj && (
                                 <PinMarker
-                                    coordinate={{ latitude: riderLoc.lat, longitude: riderLoc.lng }}
+                                    coordinate={{ latitude: ridersLocObj.latitude, longitude: ridersLocObj.longitude }}
                                     type="rider"
                                     title={order.riderName || "Rider"}
                                 />

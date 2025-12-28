@@ -4,6 +4,7 @@ import { useAuth } from '../../store/auth';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 
 import { MapPicker } from '../../components/MapPicker';
 import { getShopPin, saveShopPin } from '../../services/pins';
@@ -34,7 +35,7 @@ export default function MerchantProfileScreen() {
 
     const loadShopPin = async () => {
         if (user?.id) {
-            const pin = await getShopPin(user.id); // Assuming user.id is shopId for 1:1 mapping
+            const pin = await getShopPin(user.id);
             if (pin) {
                 setShopPin(pin);
             }
@@ -59,7 +60,7 @@ export default function MerchantProfileScreen() {
         if (!user || user.role !== 'merchant') {
             navigation.reset({
                 index: 0,
-                routes: [{ name: 'RoleSelector' as never }], // Redirect to RoleSelector or Home
+                routes: [{ name: 'RoleSelector' as never }],
             });
         }
     }, [user]);
@@ -108,11 +109,11 @@ export default function MerchantProfileScreen() {
         }
     };
 
-    const handlePinConfirm = async (location: { lat: number; lng: number }, note: string) => {
+    const handlePinConfirm = async (newPin: PinLocation) => {
         if (!user?.id) return;
-        const success = await saveShopPin(user.id, location, note);
+        const success = await saveShopPin(user.id, newPin);
         if (success) {
-            setShopPin({ ...location, address: note, updatedAt: Date.now() });
+            setShopPin(newPin);
             setShowMapPicker(false);
             Alert.alert("สำเร็จ", "บันทึกพิกัดร้านค้าแล้ว");
         } else {
@@ -223,32 +224,61 @@ export default function MerchantProfileScreen() {
         </View>
     );
 
+    const DEFAULT_LAT = 13.7563;
+    const DEFAULT_LNG = 100.5018;
+
+    const safeLat = shopPin?.latitude ?? shopPin?.lat ?? DEFAULT_LAT;
+    const safeLng = shopPin?.longitude ?? shopPin?.lng ?? DEFAULT_LNG;
+
+    const region: Region = {
+        latitude: safeLat,
+        longitude: safeLng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01
+    };
+
     return (
         <ScrollView style={styles.container}>
-            {/* ส่วนโปรไฟล์ร้าน */}
             <View style={styles.profileSection}>
                 {renderProfileHeader()}
             </View>
 
-            {/* เมนูต่าง ๆ ของร้าน */}
             <View style={styles.menuSection}>
+                {/* Shop Location Section with Mini Map */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>ที่ตั้งร้านค้า</Text>
-                    <TouchableOpacity style={styles.menuItem} onPress={() => setShowMapPicker(true)}>
-                        <Ionicons name="location-outline" size={24} color="#007AFF" />
-                        <View style={styles.textWrapper}>
-                            <Text style={styles.menuText}>
-                                {shopPin ? "แก้ไขตำแหน่งร้าน" : "ตั้งค่าตำแหน่งร้าน"}
-                            </Text>
-                            {shopPin && (
-                                <Text style={styles.rowSubLabel} numberOfLines={1}>
-                                    {shopPin.lat.toFixed(4)}, {shopPin.lng.toFixed(4)}
-                                    {shopPin.address ? ` - ${shopPin.address}` : ''}
+                    <View style={styles.sectionHeaderRow}>
+                        <Text style={styles.sectionTitle}>ที่ตั้งร้านค้า</Text>
+                        <TouchableOpacity onPress={() => setShowMapPicker(true)}>
+                            <Text style={styles.editText}>แก้ไข</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {shopPin ? (
+                        <View style={styles.mapPreviewContainer}>
+                            <MapView
+                                provider={PROVIDER_GOOGLE}
+                                style={styles.miniMap}
+                                region={region}
+                                scrollEnabled={false}
+                                zoomEnabled={false}
+                                pitchEnabled={false}
+                                rotateEnabled={false}
+                                liteMode={true} // Use Lite Mode for better performance in lists/static views on Android
+                            >
+                                <Marker coordinate={{ latitude: safeLat, longitude: safeLng }} />
+                            </MapView>
+                            <View style={styles.addressOverlay}>
+                                <Text style={styles.addressText} numberOfLines={2}>
+                                    {shopPin.addressText || `${safeLat.toFixed(4)}, ${safeLng.toFixed(4)}`}
                                 </Text>
-                            )}
+                            </View>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
-                    </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={styles.addPinButton} onPress={() => setShowMapPicker(true)}>
+                            <Ionicons name="location-outline" size={24} color="#007AFF" />
+                            <Text style={styles.addPinText}>ตั้งค่าร้านค้าบนแผนที่</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <View style={styles.section}>
@@ -293,13 +323,7 @@ export default function MerchantProfileScreen() {
                 <MapPicker
                     label="ปักหมุดตำแหน่งร้านค้า"
                     placeholderNote="รายละเอียดเพิ่มเติม (เช่น ตึก, ชั้น, ซอย)"
-                    initialPin={shopPin ? { lat: shopPin.lat, lng: shopPin.lng } : undefined}
-                    initialRegion={shopPin ? {
-                        latitude: shopPin.lat,
-                        longitude: shopPin.lng,
-                        latitudeDelta: 0.005,
-                        longitudeDelta: 0.005
-                    } : undefined}
+                    initialPin={shopPin || undefined}
                     onConfirm={handlePinConfirm}
                     onCancel={() => setShowMapPicker(false)}
                 />
@@ -397,6 +421,13 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderBottomWidth: 1,
         borderColor: '#E5E5EA',
+        paddingBottom: 8,
+    },
+    sectionHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingRight: 16,
     },
     sectionTitle: {
         fontSize: 13,
@@ -404,7 +435,11 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         paddingHorizontal: 16,
         paddingVertical: 8,
-        backgroundColor: '#F2F2F7',
+    },
+    editText: {
+        color: '#007AFF',
+        fontSize: 14,
+        fontWeight: '500',
     },
     row: {
         flexDirection: 'row',
@@ -460,4 +495,45 @@ const styles = StyleSheet.create({
         borderBottomColor: '#007AFF',
         paddingBottom: 4,
     },
+    mapPreviewContainer: {
+        height: 150,
+        marginHorizontal: 16,
+        marginTop: 4,
+        marginBottom: 12,
+        borderRadius: 8,
+        overflow: 'hidden',
+        position: 'relative',
+    },
+    miniMap: {
+        width: '100%',
+        height: '100%',
+    },
+    addressOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: 8,
+    },
+    addressText: {
+        color: '#fff',
+        fontSize: 12,
+    },
+    addPinButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        justifyContent: 'center',
+        borderStyle: 'dashed',
+        borderWidth: 1,
+        borderColor: '#C7C7CC',
+        margin: 16,
+        borderRadius: 8,
+    },
+    addPinText: {
+        marginLeft: 8,
+        color: '#007AFF',
+        fontSize: 16,
+    }
 });

@@ -16,7 +16,7 @@ export default function EditProductScreen({ route, navigation }: Props) {
 
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
-    const [categoryId, setCategoryId] = useState<ProductCategoryId | ''>('');
+    const [categoryId, setCategoryId] = useState<ProductCategoryId | undefined>(undefined);
     const [promotion, setPromotion] = useState('');
     const [imageUris, setImageUris] = useState<string[]>([]);
     const [videoUri, setVideoUri] = useState<string | undefined>(undefined);
@@ -25,7 +25,9 @@ export default function EditProductScreen({ route, navigation }: Props) {
         if (product) {
             setName(product.name);
             setPrice(product.price.toString());
-            setCategoryId(product.categoryId);
+            if (product.categoryId) {
+                setCategoryId(product.categoryId as ProductCategoryId);
+            }
             setPromotion(product.promotion || '');
             setImageUris(product.imageUris || []);
             setVideoUri(product.videoUri);

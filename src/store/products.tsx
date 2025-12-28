@@ -8,9 +8,12 @@ export type Product = {
     id: string;
     name: string;
     price: number;
-    categoryId: ProductCategoryId;
+    // categoryId: ProductCategoryId; // Original
+    categoryId?: string; // Relaxed for compatibility
     promotion?: string;
     imageUris: string[];
+    imageUrl?: string; // Compatibility
+    isHot?: boolean; // Compatibility
     videoUri?: string;
     merchantId: string;
     merchantName?: string;

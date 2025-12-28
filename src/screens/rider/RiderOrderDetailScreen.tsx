@@ -1,30 +1,28 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Platform, Linking } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
+﻿import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, Platform } from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 
-import { RiderStackParamList } from '../../types';
-import { useOrders } from '../../store/orders';
+import { useOrders, OrderStatus } from '../../store/orders';
+import { useAuth } from '../../store/auth';
 import { useProducts } from '../../store/products';
-import { Ionicons } from '@expo/vector-icons';
-import { getOrderStatusLabel, getOrderStatusColor, OrderStatus } from '../../utils/orderStatus';
 import { PinMarker } from '../../components/PinMarker';
+import { getOrderStatusLabel, getOrderStatusColor } from "../../utils/orderStatus";
 import { openNavigationApp } from '../../services/pins';
 
-type RiderOrderDetailRouteProp = RouteProp<RiderStackParamList, 'RiderOrderDetail'>;
-type NavigationProp = NativeStackNavigationProp<RiderStackParamList, 'RiderOrderDetail'>;
+type RiderOrderDetailRouteProp = RouteProp<{ RiderOrderDetail: { orderId: string } }, 'RiderOrderDetail'>;
 
-const CURRENT_RIDER = "Demo Rider";
+const CURRENT_RIDER = "Rider Demo"; // Mock
 
 export default function RiderOrderDetailScreen() {
     const route = useRoute<RiderOrderDetailRouteProp>();
-    const navigation = useNavigation<NavigationProp>();
     const { orderId } = route.params;
+    const navigation = useNavigation<any>();
     const {
         orders,
+        updateOrderStatus,
         assignRider,
         confirmPickup,
         confirmDelivery,
@@ -176,43 +174,36 @@ export default function RiderOrderDetailScreen() {
         );
     };
 
-    const openGoogleMaps = () => {
-        // Decide destination based on status
-        let targetLat, targetLng, targetLabel;
-        const pickup = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
-        const dropoff = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
-
-        if (['assigned', 'RIDER_HEADING_TO_STORE', 'WAITING_RIDER'].includes(order.status)) {
-            targetLat = pickup.lat;
-            targetLng = pickup.lng;
-            targetLabel = "ร้านค้า";
-        } else {
-            targetLat = dropoff.lat;
-            targetLng = dropoff.lng;
-            targetLabel = "ลูกค้า";
-        }
-
-        const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
-        const latLng = `${targetLat},${targetLng}`;
-        const label = targetLabel;
-        const url = Platform.select({
-            ios: `${scheme}${label}@${latLng}`,
-            android: `${scheme}${latLng}(${label})`
-        });
-
-        if (url) {
-            Linking.openURL(url);
-        }
-    };
-
     const statusLabel = getOrderStatusLabel(order.status as OrderStatus);
     const statusColor = getOrderStatusColor(order.status as OrderStatus);
     const isJobMine = isMyJob(order);
 
-    // Safe fallbacks for locations
-    const pickupLoc = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
-    const dropoffLoc = order.dropoffPin || order.customerLocation || { lat: 13.7563, lng: 100.5018 };
-    const riderLoc = currentLocation ? { lat: currentLocation.coords.latitude, lng: currentLocation.coords.longitude } : (order.riderLiveLocation || order.riderLocation);
+    // Safe fallbacks for locations with new Types
+    // Ensure we handle both legacy lat/lng and new latitude/longitude if mixed data
+    const getLat = (loc: any) => loc?.latitude ?? loc?.lat ?? 13.7563;
+    const getLng = (loc: any) => loc?.longitude ?? loc?.lng ?? 100.5018;
+
+    const pickupLoc = {
+        latitude: getLat(order.pickupPin || order.storeLocation),
+        longitude: getLng(order.pickupPin || order.storeLocation),
+        lat: getLat(order.pickupPin || order.storeLocation),
+        lng: getLng(order.pickupPin || order.storeLocation)
+    };
+    const dropoffLoc = {
+        latitude: getLat(order.dropoffPin || order.customerLocation),
+        longitude: getLng(order.dropoffPin || order.customerLocation),
+        lat: getLat(order.dropoffPin || order.customerLocation),
+        lng: getLng(order.dropoffPin || order.customerLocation)
+    };
+
+    // Rider locaion
+    const rawRiderLoc = currentLocation ? currentLocation.coords : (order.riderLiveLocation || order.riderLocation);
+    const riderLoc = rawRiderLoc ? {
+        latitude: getLat(rawRiderLoc),
+        longitude: getLng(rawRiderLoc),
+        lat: getLat(rawRiderLoc),
+        lng: getLng(rawRiderLoc)
+    } : null;
 
     return (
         <View style={{ flex: 1 }}>
@@ -233,23 +224,23 @@ export default function RiderOrderDetailScreen() {
                                 provider={PROVIDER_GOOGLE}
                                 style={styles.map}
                                 initialRegion={{
-                                    latitude: riderLoc?.lat || pickupLoc.lat, // Prioritize rider loc
-                                    longitude: riderLoc?.lng || pickupLoc.lng,
+                                    latitude: riderLoc?.latitude || pickupLoc.latitude, // Prioritize rider loc
+                                    longitude: riderLoc?.longitude || pickupLoc.longitude,
                                     latitudeDelta: 0.05,
                                     longitudeDelta: 0.05,
                                 }}
                                 showsUserLocation={true}
                             >
-                                <PinMarker coordinate={{ latitude: pickupLoc.lat, longitude: pickupLoc.lng }} type="pickup" title="ร้านค้า" />
-                                <PinMarker coordinate={{ latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }} type="dropoff" title="ลูกค้า" />
+                                <PinMarker coordinate={pickupLoc} type="pickup" title="ร้านค้า" />
+                                <PinMarker coordinate={dropoffLoc} type="dropoff" title="ลูกค้า" />
 
                                 {/* Draw line if we have rider loc */}
                                 {riderLoc && (
                                     <Polyline
                                         coordinates={[
-                                            { latitude: riderLoc.lat, longitude: riderLoc.lng },
-                                            { latitude: pickupLoc.lat, longitude: pickupLoc.lng },
-                                            { latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }
+                                            riderLoc,
+                                            pickupLoc,
+                                            dropoffLoc
                                         ]}
                                         strokeColor="#36D873"
                                         strokeWidth={3}
@@ -260,7 +251,7 @@ export default function RiderOrderDetailScreen() {
                             <View style={styles.navConfigContainer}>
                                 <TouchableOpacity
                                     style={[styles.navButton, { marginBottom: 8 }]}
-                                    onPress={() => openNavigationApp(pickupLoc.lat, pickupLoc.lng, "ร้านค้า")}
+                                    onPress={() => openNavigationApp(pickupLoc.latitude, pickupLoc.longitude, "ร้านค้า")}
                                 >
                                     <Ionicons name="storefront" size={20} color="#36D873" />
                                     <Text style={styles.navButtonText}>นำทางไปร้าน</Text>
@@ -268,7 +259,7 @@ export default function RiderOrderDetailScreen() {
 
                                 <TouchableOpacity
                                     style={styles.navButton}
-                                    onPress={() => openNavigationApp(dropoffLoc.lat, dropoffLoc.lng, "ลูกค้า")}
+                                    onPress={() => openNavigationApp(dropoffLoc.latitude, dropoffLoc.longitude, "ลูกค้า")}
                                 >
                                     <Ionicons name="person" size={20} color="#36D873" />
                                     <Text style={styles.navButtonText}>นำทางไปส่ง</Text>
@@ -294,13 +285,15 @@ export default function RiderOrderDetailScreen() {
                     </View>
                     <View style={styles.infoBlock}>
                         <Text style={styles.label}>จุดรับสินค้า (Pickup)</Text>
-                        <Text style={styles.value}>{order.storeAddress || 'ร้านค้า NadHub'}</Text>
-                        {order.pickupPin?.note && <Text style={styles.pinNote}>📌 {order.pickupPin.note}</Text>}
+                        {/* Use Pin Address if available, fallback to storeAddress */}
+                        <Text style={styles.value}>{order.pickupPin?.addressText || order.storeAddress || 'ร้านค้า NadHub'}</Text>
+                        {order.pickupPin?.note && <Text style={styles.pinNote}>📍 {order.pickupPin.note}</Text>}
                     </View>
                     <View style={styles.infoBlock}>
                         <Text style={styles.label}>จุดส่งสินค้า (Dropoff)</Text>
-                        <Text style={styles.value}>{order.customerAddress}</Text>
-                        {order.dropoffPin?.note && <Text style={styles.pinNote}>📌 {order.dropoffPin.note}</Text>}
+                        {/* Use Pin Address if available, fallback to customerAddress */}
+                        <Text style={styles.value}>{order.dropoffPin?.addressText || order.customerAddress}</Text>
+                        {order.dropoffPin?.note && <Text style={styles.pinNote}>📍 {order.dropoffPin.note}</Text>}
                     </View>
 
                     {order.buyerNote && (
@@ -367,6 +360,10 @@ export default function RiderOrderDetailScreen() {
                             <Text style={styles.completeButtonText}>ปิดงาน</Text>
                         </TouchableOpacity>
                     )}
+
+                    <Text style={{ color: "#999", fontSize: 10, marginTop: 20 }}>
+                        RAW: {JSON.stringify(order, null, 2)}
+                    </Text>
                 </View>
             </ScrollView>
         </View>
@@ -482,39 +479,43 @@ const styles = StyleSheet.create({
     // Map Styles
     mapContainer: {
         height: 250,
-        borderRadius: 12,
+        borderRadius: 8,
         overflow: 'hidden',
-        marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#263B3B',
-        position: 'relative',
-    },
-    map: {
-        width: '100%',
-        height: '100%',
-    },
-    navButton: {
-        backgroundColor: 'rgba(0,0,0,0.8)',
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 20,
+        marginBottom: 16,
         borderWidth: 1,
         borderColor: '#36D873',
-        alignSelf: 'flex-end',
+    },
+    map: {
+        flex: 1,
+    },
+    navConfigContainer: {
+        position: 'absolute',
+        bottom: 16,
+        left: 16,
+        right: 16,
+        flexDirection: 'column',
+    },
+    navButton: {
+        backgroundColor: '#02090A',
+        padding: 10,
+        borderRadius: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#36D873',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.5,
+        shadowRadius: 2,
+        elevation: 3,
     },
     navButtonText: {
         color: '#36D873',
         fontWeight: 'bold',
-        marginLeft: 6,
+        marginLeft: 8,
     },
-    navConfigContainer: {
-        position: 'absolute',
-        bottom: 10,
-        right: 10,
-        alignItems: 'flex-end',
-    },
+    // Action Buttons
     actionContainer: {
         marginTop: 16,
         marginBottom: 40,
@@ -527,57 +528,58 @@ const styles = StyleSheet.create({
     },
     acceptButtonText: {
         color: '#001010',
-        fontSize: 18,
         fontWeight: 'bold',
+        fontSize: 18,
     },
     actionButton: {
         backgroundColor: '#36D873',
         padding: 16,
         borderRadius: 8,
         alignItems: 'center',
-        marginBottom: 12,
     },
     actionButtonText: {
         color: '#001010',
-        fontSize: 18,
         fontWeight: 'bold',
+        fontSize: 18,
     },
     completeButton: {
-        backgroundColor: '#1ECC88',
+        backgroundColor: '#FFD700',
         padding: 16,
         borderRadius: 8,
         alignItems: 'center',
     },
     completeButtonText: {
         color: '#001010',
-        fontSize: 18,
         fontWeight: 'bold',
+        fontSize: 18,
     },
+    // Review Styles
     reviewContainer: {
-        backgroundColor: '#0F1A1A',
-        borderRadius: 12,
+        marginTop: 16,
         padding: 16,
-        marginBottom: 24,
+        backgroundColor: '#0F1A1A',
+        borderRadius: 8,
         borderWidth: 1,
         borderColor: '#263B3B',
     },
     reviewTitle: {
         fontSize: 16,
         fontWeight: 'bold',
-        color: '#8FA3A3',
+        color: '#FFFFFF',
         marginBottom: 12,
     },
     ratingRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 8,
+        justifyContent: 'space-between',
+        marginBottom: 12,
     },
     stars: {
         flexDirection: 'row',
-        marginRight: 8,
+        gap: 4,
     },
     ratingValue: {
-        fontSize: 18,
+        fontSize: 24,
         fontWeight: 'bold',
         color: '#FFD700',
     },
@@ -585,11 +587,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#02090A',
         padding: 12,
         borderRadius: 8,
-        marginTop: 8,
     },
     commentText: {
-        color: '#FFFFFF',
-        fontSize: 14,
+        color: '#8FA3A3',
         fontStyle: 'italic',
     },
 });

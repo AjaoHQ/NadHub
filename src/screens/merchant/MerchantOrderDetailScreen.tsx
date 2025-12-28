@@ -7,6 +7,7 @@ import { useOrders } from '../../store/orders';
 import { getOrderStatusLabel, getOrderStatusColor } from '../../utils/orderStatus';
 import { MapPicker } from '../../components/MapPicker';
 import { PinMarker } from '../../components/PinMarker';
+import { PinLocation } from '../../types/pins';
 import { Ionicons } from '@expo/vector-icons';
 
 type ScreenRouteProp = RouteProp<MerchantOrderStackParamList, 'MerchantOrderDetail'>;
@@ -74,8 +75,10 @@ export default function MerchantOrderDetailScreen() {
         );
     };
 
-    const handleSavePin = async (location: { lat: number; lng: number }, note: string) => {
-        await updatePickupPin(orderId, location.lat, location.lng, note);
+    const handleSavePin = async (location: PinLocation) => {
+        const lat = location.latitude ?? location.lat ?? 0;
+        const lng = location.longitude ?? location.lng ?? 0;
+        await updatePickupPin(orderId, lat, lng, location.note);
         setShowMapPicker(false);
     };
 
@@ -83,8 +86,26 @@ export default function MerchantOrderDetailScreen() {
     const statusColor = getOrderStatusColor(order.status);
 
     // Map Logic
-    const pickupLoc = order.pickupPin || order.storeLocation || { lat: 13.7563, lng: 100.5018 };
-    const dropoffLoc = order.dropoffPin || order.customerLocation; // Might be null?
+    // Map Logic
+    const pickupLoc = {
+        latitude: order.pickupPin?.latitude ?? order.pickupPin?.lat ?? order.storeLocation?.lat ?? 13.7563,
+        longitude: order.pickupPin?.longitude ?? order.pickupPin?.lng ?? order.storeLocation?.lng ?? 100.5018,
+        lat: order.pickupPin?.lat ?? 13.7563,
+        lng: order.pickupPin?.lng ?? 100.5018,
+        note: order.pickupPin?.note
+    };
+
+    const dropoffLoc = order.dropoffPin ? {
+        latitude: order.dropoffPin.latitude ?? order.dropoffPin.lat ?? 13.7563,
+        longitude: order.dropoffPin.longitude ?? order.dropoffPin.lng ?? 100.5018,
+        lat: order.dropoffPin.lat ?? 13.7563,
+        lng: order.dropoffPin.lng ?? 100.5018
+    } : (order.customerLocation ? {
+        latitude: order.customerLocation.lat,
+        longitude: order.customerLocation.lng,
+        lat: order.customerLocation.lat,
+        lng: order.customerLocation.lng
+    } : undefined);
     const riderLoc = order.riderLiveLocation || order.riderLocation;
 
     return (
@@ -104,8 +125,8 @@ export default function MerchantOrderDetailScreen() {
                             provider={PROVIDER_GOOGLE}
                             style={styles.mapPreview}
                             initialRegion={{
-                                latitude: pickupLoc.lat,
-                                longitude: pickupLoc.lng,
+                                latitude: pickupLoc.latitude,
+                                longitude: pickupLoc.longitude,
                                 latitudeDelta: 0.02,
                                 longitudeDelta: 0.02,
                             }}
@@ -113,13 +134,13 @@ export default function MerchantOrderDetailScreen() {
                             zoomEnabled={false}
                         >
                             <PinMarker
-                                coordinate={{ latitude: pickupLoc.lat, longitude: pickupLoc.lng }}
+                                coordinate={{ latitude: pickupLoc.latitude, longitude: pickupLoc.longitude }}
                                 type="pickup"
                                 title="จุดรับสินค้า (ร้าน)"
                             />
                             {dropoffLoc && (
                                 <PinMarker
-                                    coordinate={{ latitude: dropoffLoc.lat, longitude: dropoffLoc.lng }}
+                                    coordinate={{ latitude: dropoffLoc.latitude, longitude: dropoffLoc.longitude }}
                                     type="dropoff"
                                     title="จุดส่งสินค้า (ลูกค้า)"
                                 />

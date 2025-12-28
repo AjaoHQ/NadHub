@@ -8,6 +8,7 @@ import { calculateDiscount } from '../../store/discounts';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { MapPicker } from '../../components/MapPicker';
+import { PinLocation } from '../../types/pins';
 
 export default function BuyerCartScreen() {
     const { cartItems, removeFromCart, updateQuantity, clearCart, itemsTotal } = useCart();
@@ -19,8 +20,7 @@ export default function BuyerCartScreen() {
 
     // Customer Pin State
     const [showMap, setShowMap] = useState(false);
-    const [deliveryPin, setDeliveryPin] = useState<{ lat: number; lng: number } | null>(null);
-    const [deliveryNote, setDeliveryNote] = useState("");
+    const [deliveryPin, setDeliveryPin] = useState<PinLocation | null>(null);
 
     // Mock distance for delivery fee
     const distanceKm = 5;
@@ -53,8 +53,8 @@ export default function BuyerCartScreen() {
             storeName: 'ร้านค้า NadHub',
             storePhone: '02-999-9999',
             storeAddress: '123 ตลาดนัดฮับ',
-            storeLocation: { lat: 13.7563, lng: 100.5018 },
-            pickupPin: { lat: 13.7563, lng: 100.5018, note: 'หน้าร้าน', updatedAt: Date.now(), updatedBy: 'merchant' }
+            storeLocation: { latitude: 13.7563, longitude: 100.5018 },
+            pickupPin: { latitude: 13.7563, longitude: 100.5018, addressText: 'หน้าร้าน', updatedAt: Date.now() }
         };
 
         createOrder({
@@ -63,37 +63,13 @@ export default function BuyerCartScreen() {
             customerName: user.displayName || user.phone || 'Guest',
             customerPhone: user.phone,
             customerAddress: user.addressLine || "ที่อยู่จัดส่ง (Mock)",
-            customerLocation: deliveryPin || { lat: 13.7563, lng: 100.5018 }, // Use pin or mock
+            customerLocation: deliveryPin || { latitude: 13.7563, longitude: 100.5018 },
 
             // Pin Data
             dropoffPin: deliveryPin ? {
-                lat: deliveryPin.lat,
-                lng: deliveryPin.lng,
-                note: deliveryNote,
-                updatedAt: Date.now(),
-                updatedBy: 'customer'
+                ...deliveryPin,
+                updatedAt: Date.now()
             } : undefined,
-            pickupPin: mockStore.pickupPin,
-
-            // Store Info
-            ...mockStore,
-
-            // Order Items
-            items: cartItems.map(item => ({
-                productId: item.productId,
-                productName: item.productName,
-                price: item.price,
-                quantity: item.quantity,
-                imageUrl: item.imageUrl,
-            })),
-
-            // Payment & Fees
-            itemsTotal,
-            deliveryFee,
-            platformFee: 0, // Mock
-            riderNetEarning: deliveryFee * 0.8, // Mock formula
-            grandTotal,
-            discountCode: appliedDiscount?.code,
             discountAmount: appliedDiscount?.amount,
             paymentMethod: 'COD', // Default for now
         });
@@ -132,7 +108,7 @@ export default function BuyerCartScreen() {
                         </Text>
                         {deliveryPin && (
                             <Text style={styles.pinText}>
-                                📌 ปักหมุดแล้ว: {deliveryNote || "ไม่มีข้อความระบุ"}
+                                📌 ปักหมุดแล้ว: {deliveryPin.addressText || "ไม่มีข้อความระบุ"}
                             </Text>
                         )}
                         <TouchableOpacity style={styles.pinButton} onPress={() => setShowMap(true)}>
@@ -208,9 +184,8 @@ export default function BuyerCartScreen() {
                 <MapPicker
                     label="ปักหมุดจุดส่งสินค้า"
                     placeholderNote="จุดสังเกตสำหรับไรเดอร์ (เช่น บ้านรั้วสีขาว)"
-                    onConfirm={(loc, note) => {
+                    onConfirm={(loc) => {
                         setDeliveryPin(loc);
-                        setDeliveryNote(note);
                         setShowMap(false);
                     }}
                     onCancel={() => setShowMap(false)}

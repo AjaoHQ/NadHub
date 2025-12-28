@@ -1,17 +1,6 @@
 import React from "react";
 import { View, Text, Image, StyleSheet, TouchableOpacity } from "react-native";
-
-export type Product = {
-    id: string;
-    name: string;
-    price: number;
-    imageUrl?: string;
-    imageUris?: string[]; // Support both for compatibility
-    isHot?: boolean;
-    category?: string;
-    description?: string;
-    merchantId?: string;
-};
+import { Product } from "../store/products";
 
 type Props = {
     product: Product;

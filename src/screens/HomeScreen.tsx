@@ -13,7 +13,7 @@ import { useAuth } from "../store/auth";
 import { getOrderStatusLabel } from "../utils/orderStatus";
 
 export default function HomeScreen() {
-    const navigation = useNavigation();
+    const navigation = useNavigation<any>();
     const { orders } = useOrders();
     const { user } = useAuth();
 
@@ -43,19 +43,19 @@ export default function HomeScreen() {
                 <QuickBox
                     label="ตลาดใกล้คุณ"
                     onPress={() =>
-                        navigation.navigate("Market" as never)
+                        navigation.navigate("Market" as any)
                     }
                 />
                 <QuickBox
                     label="สั่งอะไรด่วน"
                     onPress={() =>
-                        navigation.navigate("BuyerTabs", { screen: "BuyerOrders" } as never)
+                        navigation.navigate("BuyerTabs", { screen: "BuyerOrders" } as any)
                     }
                 />
                 <QuickBox
                     label="รายการล่าสุด"
                     onPress={() =>
-                        navigation.navigate("BuyerTabs", { screen: "BuyerOrders" } as never)
+                        navigation.navigate("BuyerTabs", { screen: "BuyerOrders" } as any)
                     }
                 />
             </View>
@@ -72,8 +72,8 @@ export default function HomeScreen() {
                             style={styles.orderCard}
                             onPress={() =>
                                 navigation.navigate(
-                                    "BuyerOrderDetail" as never,
-                                    { orderId: o.id } as never
+                                    "BuyerOrderDetail" as any,
+                                    { orderId: o.id } as any
                                 )
                             }
                         >

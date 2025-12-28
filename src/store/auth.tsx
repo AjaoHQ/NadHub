@@ -3,6 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type UserRole = "buyer" | "merchant" | "rider" | "admin";
 
+export enum MERCHANT_STATUS {
+    PENDING = 'pending',
+    APPROVED = 'approved',
+    REJECTED = 'rejected'
+}
+
 export function isRiderProfileComplete(user: User | null): boolean {
     if (!user || user.role !== "rider") return false;
     return !!user.isRiderProfileComplete;
@@ -45,6 +51,7 @@ export type BuyerProfile = BaseUser & {
 export type MerchantProfile = BaseUser & {
     role: "merchant";
     isOpen?: boolean;
+    merchantStatus?: MERCHANT_STATUS; // Status of the merchant account
     ownerName: string;
     taxId?: string;
     idCardNumber?: string;
